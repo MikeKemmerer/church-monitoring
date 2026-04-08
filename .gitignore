@@ -1,0 +1,15 @@
+# Sensitive config (use .example.json as templates)
+client-config.json
+server-config.json
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.csr
+
+# Auth
+.htpasswd
+
+# Enrollment tokens
+tokens/

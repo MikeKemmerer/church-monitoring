@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Church Monitoring — Help</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:16px;max-width:800px;margin:0 auto;line-height:1.6}
+h1{font-size:20px;margin-bottom:4px;color:#fff}
+h1 a{font-size:13px;color:#7eb8da;text-decoration:none}
+h2{font-size:16px;color:#7eb8da;margin-top:20px;margin-bottom:6px;border-bottom:1px solid #0f3460;padding-bottom:4px}
+h3{font-size:14px;color:#a0c4e8;margin-top:14px;margin-bottom:4px}
+p,li{font-size:13px;margin-bottom:6px}
+ul,ol{padding-left:20px;margin-bottom:8px}
+code{background:#0f3460;padding:1px 5px;border-radius:3px;font-size:12px;color:#7eb8da}
+pre{background:#0f3460;padding:10px;border-radius:6px;overflow-x:auto;font-size:12px;margin:8px 0;color:#a0c4e8}
+.note{background:#1a3a5c;border-left:3px solid #f39c12;padding:8px 12px;margin:10px 0;font-size:12px;border-radius:0 4px 4px 0}
+</style>
+</head>
+<body>
+
+<h1>&#128225; Church Monitoring Help &nbsp;<a href="index.html">&larr; Dashboard</a></h1>
+
+<h2>Architecture Overview</h2>
+<p>The monitoring system uses a <b>pull model</b> with two components:</p>
+<ul>
+    <li><b>Clients</b> (agents) — run on each monitored host. An Apache vhost on port 8033
+        serves cached status data over HTTPS with mutual TLS authentication.</li>
+    <li><b>Server</b> (dashboard) — runs on the primary host. Apache on the configured port
+        serves the dashboard UI and proxies requests to clients using client certificates.</li>
+</ul>
+<p>Clients collect system metrics and service status every 5 minutes via cron, writing a
+    cached JSON file. The dashboard fetches this cache on demand — near-instant response.</p>
+
+<h2>Components</h2>
+<h3>Client-side (each monitored host)</h3>
+<ul>
+    <li><code>status.cgi</code> — serves the cached status JSON</li>
+    <li><code>cec-check.cgi</code> — on-demand CEC TV status (button-triggered, not polled)</li>
+    <li><code>collect.sh</code> — cron script that gathers metrics and writes the cache</li>
+    <li><code>client-config.json</code> — defines which services/processes to monitor</li>
+</ul>
+<h3>Server-side (dashboard host)</h3>
+<ul>
+    <li><code>index.html</code> — dashboard UI (this page's sibling)</li>
+    <li><code>fetch-status.cgi</code> — aggregates status from all clients</li>
+    <li><code>fetch-cec.cgi</code> — proxies CEC check to a specific client</li>
+    <li><code>enroll.cgi</code> — handles client certificate enrollment</li>
+    <li><code>server-config.json</code> — lists all monitored clients</li>
+</ul>
+
+<h2>Initial Setup</h2>
+<h3>1. Install the server</h3>
+<pre>sudo ./install-server.sh</pre>
+<p>The installer will:</p>
+<ol>
+    <li>Install required packages (apache2, openssl, jq)</li>
+    <li>Create a Certificate Authority (CA) for mutual TLS</li>
+    <li>Generate the server's client certificate</li>
+    <li>Configure the dashboard Apache vhost (default port 8080)</li>
+    <li>Set up HTTP basic authentication</li>
+    <li>Generate the first enrollment token</li>
+</ol>
+<p>Note the enrollment token displayed at the end — you'll need it for client setup.</p>
+
+<h3>2. Install each client</h3>
+<pre>sudo ./install-client.sh</pre>
+<p>The installer will prompt for:</p>
+<ul>
+    <li>Server address and port (e.g., <code>server-ip:8080</code>)</li>
+    <li>Enrollment token (from server setup or <code>generate-token.sh</code>)</li>
+    <li>Which services to monitor (auto-detected, y/n for each)</li>
+</ul>
+<p>The installer automatically generates a TLS certificate, enrolls with the server,
+    and sets up the monitoring agent.</p>
+
+<h2>Adding New Clients</h2>
+<p>After initial setup, to add more monitored hosts:</p>
+<ol>
+    <li>On the server, generate a new enrollment token:
+        <pre>sudo /usr/local/bin/generate-token.sh</pre></li>
+    <li>On the new client, run the installer with the new token:
+        <pre>sudo ./install-client.sh</pre></li>
+</ol>
+<p>Each token is single-use and is automatically deleted after successful enrollment.</p>
+
+<h2>Certificate Management</h2>
+<ul>
+    <li><b>CA certificate</b> — valid for 10 years. Stored at <code>/etc/church-monitoring/ca/</code></li>
+    <li><b>Client certificates</b> — valid for 2 years. Renew by running:
+        <pre>sudo ./install-client.sh --renew</pre></li>
+    <li><b>Server certificate</b> — valid for 2 years. Regenerate via:
+        <pre>sudo ./install-server.sh --renew-cert</pre></li>
+    <li>To manually sign a CSR: <pre>sudo /usr/local/bin/sign-csr.sh &lt;path-to-csr&gt;</pre></li>
+</ul>
+
+<h2>Service Configuration</h2>
+<p>Edit <code>/etc/church-monitoring/client-config.json</code> on each client to change
+    monitored services:</p>
+<pre>{
+    "hostname": "host-a",
+    "monitors": [
+        {"name": "apache2", "type": "systemd"},
+        {"name": "church-calendar", "type": "systemd"},
+        {"name": "vlc", "type": "process"}
+    ],
+    "cec_enabled": false
+}</pre>
+<p>Types: <code>systemd</code> checks <code>systemctl is-active</code>;
+    <code>process</code> checks <code>pgrep</code>.</p>
+<p>Changes take effect on the next cron collection (within 5 minutes).</p>
+
+<h2>CEC TV Status</h2>
+<p>CEC checks are <b>on-demand only</b> — triggered by the "Check TV" button on the
+    dashboard. This avoids blocking the CEC adapter and is only useful when you're
+    actively looking at the dashboard.</p>
+<p>The check reports TV power state (on/standby) and active HDMI input. It has a
+    5-second timeout to prevent hangs if the CEC adapter is busy.</p>
+<div class="note">CEC requires <code>cec-utils</code> installed and the Apache user
+    (<code>www-data</code>) in the <code>video</code> group on the client host.</div>
+
+<h2>Collected Metrics</h2>
+<p>Each client reports:</p>
+<ul>
+    <li><b>System</b> — uptime, CPU load (1/5/15 min), memory usage, disk usage, CPU temperature</li>
+    <li><b>Services</b> — systemd unit active/inactive state</li>
+    <li><b>Processes</b> — running process count via pgrep</li>
+    <li><b>CEC</b> — TV power and HDMI input (on-demand only)</li>
+</ul>
+
+<h2>Password Management</h2>
+<p>To change the dashboard password or add users:</p>
+<pre>sudo /usr/local/bin/manage-auth.sh</pre>
+
+<h2>Troubleshooting</h2>
+<h3>Dashboard shows "unreachable" for a client</h3>
+<ul>
+    <li>Verify the client's Apache is running: <code>systemctl status apache2</code></li>
+    <li>Check connectivity: <code>curl -k https://CLIENT_IP:8033/</code></li>
+    <li>Verify certificates haven't expired: <code>openssl x509 -enddate -noout -in /etc/church-monitoring/ssl/agent.crt</code></li>
+    <li>Check Apache error logs: <code>tail /var/log/apache2/church-monitoring-error.log</code></li>
+</ul>
+
+<h3>Stale data (cached time keeps growing)</h3>
+<ul>
+    <li>Check cron is running: <code>crontab -l | grep church-monitoring</code></li>
+    <li>Run collection manually: <code>sudo /usr/local/bin/church-monitoring-collect</code></li>
+    <li>Check for lock file issues: <code>ls -la /var/run/church-monitoring-collect.lock</code></li>
+</ul>
+
+<h3>CEC check hangs or returns "unknown"</h3>
+<ul>
+    <li>Test manually: <code>echo "pow 0" | timeout 5 cec-client -s -d 1</code></li>
+    <li>Ensure only one process uses the CEC adapter at a time</li>
+    <li>Verify www-data is in the video group: <code>groups www-data</code></li>
+</ul>
+
+<h2>File Locations</h2>
+<pre>
+Server:
+  /etc/church-monitoring/server-config.json    Client registry
+  /etc/church-monitoring/ca/                   CA certificate and key
+  /etc/church-monitoring/ssl/                  Server client certificate
+  /etc/church-monitoring/tokens/               Enrollment tokens
+  /etc/church-monitoring/.htpasswd             Dashboard credentials
+  /var/www/church-monitoring/                  Dashboard web root
+  /usr/lib/cgi-bin/church-monitoring/          Server CGI scripts
+
+Client:
+  /etc/church-monitoring/client-config.json    Service monitor config
+  /etc/church-monitoring/ssl/                  Agent certificate and key
+  /var/cache/church-monitoring/status.json     Cached status data
+  /usr/lib/cgi-bin/church-monitoring/          Client CGI scripts
+</pre>
+
+</body>
+</html>
