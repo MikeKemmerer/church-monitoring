@@ -56,8 +56,8 @@ if [ -f "$CONFIG" ]; then
         elif [ "$TYPE" = "process" ]; then
             MATCH=$(echo "$line" | jq -r '.match // empty')
             if [ -n "$MATCH" ]; then
-                # Substring match against full ps -ef output
-                COUNT=$(ps -ef 2>/dev/null | grep -F "$MATCH" | grep -vc grep) || COUNT=0
+                # Regex match against full ps -ef output
+                COUNT=$(ps -ef 2>/dev/null | grep -E "$MATCH" | grep -vc grep) || COUNT=0
             else
                 COUNT=$(pgrep -xc "$NAME" 2>/dev/null) || COUNT=0
             fi

@@ -4,8 +4,8 @@
         {"name": "apache2", "type": "systemd"},
         {"name": "church-calendar", "type": "systemd"},
         {"name": "videokiosk2", "type": "systemd"},
-        {"name": "vlc", "type": "process", "match": "vlc -f http://sdgocstream:8086"},
-        {"name": "midori", "type": "process"}
+        {"name": "vlc", "type": "process", "match": "vlc -f http://server:8080/stream"},
+        {"name": "midori", "type": "process", "match": "midori|x-www-browser"}
     ],
     "cec_enabled": false
 }
