@@ -63,7 +63,7 @@ sudo ./install-client.sh
 
 You'll be prompted for:
 
-- **Server address** — hostname or IP with port (e.g. `192.168.1.100:8080`)
+- **Server address** — hostname or IP with port (e.g. `server-ip:8080`)
 - **Enrollment token** — the single-use token from the server
 - **Client hostname** — defaults to `$(hostname)`
 - **Services to monitor** — auto-detected, you confirm each one

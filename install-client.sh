@@ -120,7 +120,7 @@ if [[ $RENEW -eq 1 && -f "$CONF_DIR/client-config.json" ]]; then
     echo "  Renewal mode — reusing existing service configuration."
 fi
 
-read -r -p "  Server address (host or host:port) [e.g. 192.168.1.100:8080]: " SERVER_ADDR
+read -r -p "  Server address (host or host:port) [e.g. server-ip:8080]: " SERVER_ADDR
 if [[ -z "$SERVER_ADDR" ]]; then
     echo "  Server address is required." >&2
     exit 1
