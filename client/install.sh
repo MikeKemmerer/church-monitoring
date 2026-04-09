@@ -202,87 +202,153 @@ echo "Step 3/6: Configuring service monitoring..."
 
 MONITORS="[]"
 CEC_ENABLED="false"
+EXISTING_CONFIG="$CONF_DIR/client-config.json"
+SKIP_CONFIG=0
 
-if [[ -f "$BUNDLED_CONFIG" ]]; then
-    echo "  Found bundled config.json — using it as template."
+if [[ $UPDATE -eq 1 ]]; then
+    # ── Update mode: ask how to handle config ────────────────────────
+    HAS_EXISTING=0
+    HAS_BUNDLED=0
+    [[ -f "$EXISTING_CONFIG" ]] && HAS_EXISTING=1
+    [[ -f "$BUNDLED_CONFIG" ]] && HAS_BUNDLED=1
 
-    # Iterate over each monitor in the bundled config
-    while IFS= read -r entry; do
-        NAME=$(echo "$entry" | jq -r '.name')
-        TYPE=$(echo "$entry" | jq -r '.type')
-        MATCH=$(echo "$entry" | jq -r '.match // empty')
-
-        # Build description for the prompt
-        DESC="$NAME ($TYPE)"
-        [[ -n "$MATCH" ]] && DESC="$NAME ($TYPE, match: $MATCH)"
-
-        if ask_yn "Monitor ${DESC}?" "y"; then
-            MONITORS=$(echo "$MONITORS" | jq --argjson e "$entry" '. + [$e]')
-        fi
-    done < <(jq -c '.monitors[]' "$BUNDLED_CONFIG" 2>/dev/null || true)
-
-    # CEC — use bundled default
-    BUNDLED_CEC=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
-    if [[ "$BUNDLED_CEC" == "true" ]]; then
-        CEC_DEFAULT="y"
-    else
-        CEC_DEFAULT="n"
+    echo "  Service configuration options:"
+    if [[ $HAS_EXISTING -eq 1 ]]; then
+        EXISTING_COUNT=$(jq '.monitors | length' "$EXISTING_CONFIG" 2>/dev/null || echo "0")
+        echo "    [E] Keep existing config ($EXISTING_COUNT monitors)"
     fi
-    if ask_yn "Enable CEC TV status check (on-demand only)?" "$CEC_DEFAULT"; then
-        CEC_ENABLED="true"
-        usermod -aG video www-data 2>/dev/null || true
+    if [[ $HAS_BUNDLED -eq 1 ]]; then
+        BUNDLED_COUNT=$(jq '.monitors | length' "$BUNDLED_CONFIG" 2>/dev/null || echo "0")
+        echo "    [I] Use installer config.json as-is ($BUNDLED_COUNT monitors)"
     fi
-else
-    echo "  No bundled config.json — auto-detecting services."
+    echo "    [N] New — prompt for each monitor"
+    echo ""
 
-    # Systemd services to check for
-    declare -A SERVICE_MAP=(
-        ["apache2"]="Apache web server"
-        ["church-calendar"]="Church calendar display"
-        ["videokiosk2"]="Video kiosk v2"
-    )
+    VALID_OPTS=""
+    [[ $HAS_EXISTING -eq 1 ]] && VALID_OPTS="${VALID_OPTS}E/"
+    [[ $HAS_BUNDLED -eq 1 ]] && VALID_OPTS="${VALID_OPTS}I/"
+    VALID_OPTS="${VALID_OPTS}N"
 
-    for svc in apache2 church-calendar videokiosk2; do
-        DESC="${SERVICE_MAP[$svc]}"
-        if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
-            if ask_yn "Monitor ${svc} (${DESC})?" "y"; then
-                MONITORS=$(echo "$MONITORS" | jq --arg n "$svc" '. + [{"name":$n,"type":"systemd"}]')
+    read -r -p "  Choose [$VALID_OPTS]: " CONFIG_CHOICE
+    CONFIG_CHOICE=$(echo "$CONFIG_CHOICE" | tr '[:lower:]' '[:upper:]')
+
+    case "$CONFIG_CHOICE" in
+        E)
+            if [[ $HAS_EXISTING -eq 1 ]]; then
+                echo "  Keeping existing configuration."
+                SKIP_CONFIG=1
+            else
+                echo "  No existing config found." >&2
+                exit 1
             fi
-        fi
-    done
-
-    # Process checks
-    declare -A PROC_MAP=(
-        ["vlc"]="VLC media player"
-        ["midori"]="Midori web browser"
-    )
-
-    for proc in vlc midori; do
-        DESC="${PROC_MAP[$proc]}"
-        if command -v "$proc" &>/dev/null; then
-            if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
-                read -r -p "  Match regex in ps -ef (leave empty for exact name match): " PROC_MATCH
-                if [[ -n "$PROC_MATCH" ]]; then
-                    MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
-                        '. + [{"name":$n,"type":"process","match":$m}]')
-                else
-                    MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+            ;;
+        I)
+            if [[ $HAS_BUNDLED -eq 1 ]]; then
+                echo "  Using installer config.json."
+                MONITORS=$(jq -c '.monitors' "$BUNDLED_CONFIG" 2>/dev/null || echo "[]")
+                CEC_ENABLED=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
+                # Ensure www-data has video group for CEC
+                if [[ "$CEC_ENABLED" == "true" ]]; then
+                    usermod -aG video www-data 2>/dev/null || true
                 fi
+            else
+                echo "  No bundled config.json found." >&2
+                exit 1
             fi
-        fi
-    done
+            ;;
+        N)
+            # Fall through to the prompting logic below
+            ;;
+        *)
+            echo "  Invalid choice." >&2
+            exit 1
+            ;;
+    esac
+fi
 
-    # CEC
-    if command -v cec-client &>/dev/null; then
-        if ask_yn "Enable CEC TV status check (on-demand only)?" "y"; then
+if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; then
+    # ── Prompt-based config (new install or N choice) ────────────────
+    if [[ -f "$BUNDLED_CONFIG" ]]; then
+        echo "  Found bundled config.json — using it as template."
+
+        # Iterate over each monitor in the bundled config
+        while IFS= read -r entry; do
+            NAME=$(echo "$entry" | jq -r '.name')
+            TYPE=$(echo "$entry" | jq -r '.type')
+            MATCH=$(echo "$entry" | jq -r '.match // empty')
+
+            # Build description for the prompt
+            DESC="$NAME ($TYPE)"
+            [[ -n "$MATCH" ]] && DESC="$NAME ($TYPE, match: $MATCH)"
+
+            if ask_yn "Monitor ${DESC}?" "y"; then
+                MONITORS=$(echo "$MONITORS" | jq --argjson e "$entry" '. + [$e]')
+            fi
+        done < <(jq -c '.monitors[]' "$BUNDLED_CONFIG" 2>/dev/null || true)
+
+        # CEC — use bundled default
+        BUNDLED_CEC=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
+        if [[ "$BUNDLED_CEC" == "true" ]]; then
+            CEC_DEFAULT="y"
+        else
+            CEC_DEFAULT="n"
+        fi
+        if ask_yn "Enable CEC TV status check (on-demand only)?" "$CEC_DEFAULT"; then
             CEC_ENABLED="true"
             usermod -aG video www-data 2>/dev/null || true
+        fi
+    else
+        echo "  No bundled config.json — auto-detecting services."
+
+        # Systemd services to check for
+        declare -A SERVICE_MAP=(
+            ["apache2"]="Apache web server"
+            ["church-calendar"]="Church calendar display"
+            ["videokiosk2"]="Video kiosk v2"
+        )
+
+        for svc in apache2 church-calendar videokiosk2; do
+            DESC="${SERVICE_MAP[$svc]}"
+            if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
+                if ask_yn "Monitor ${svc} (${DESC})?" "y"; then
+                    MONITORS=$(echo "$MONITORS" | jq --arg n "$svc" '. + [{"name":$n,"type":"systemd"}]')
+                fi
+            fi
+        done
+
+        # Process checks
+        declare -A PROC_MAP=(
+            ["vlc"]="VLC media player"
+            ["midori"]="Midori web browser"
+        )
+
+        for proc in vlc midori; do
+            DESC="${PROC_MAP[$proc]}"
+            if command -v "$proc" &>/dev/null; then
+                if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
+                    read -r -p "  Match regex in ps -ef (leave empty for exact name match): " PROC_MATCH
+                    if [[ -n "$PROC_MATCH" ]]; then
+                        MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
+                            '. + [{"name":$n,"type":"process","match":$m}]')
+                    else
+                        MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+                    fi
+                fi
+            fi
+        done
+
+        # CEC
+        if command -v cec-client &>/dev/null; then
+            if ask_yn "Enable CEC TV status check (on-demand only)?" "y"; then
+                CEC_ENABLED="true"
+                usermod -aG video www-data 2>/dev/null || true
+            fi
         fi
     fi
 fi
 
-# Write client config (skip if --renew and config exists, always write in --update)
-if [[ $UPDATE -eq 1 ]] || [[ $RENEW -eq 0 ]] || [[ ! -f "$CONF_DIR/client-config.json" ]]; then
+# Write client config
+if [[ $SKIP_CONFIG -eq 0 ]]; then
     jq -n \
         --arg hostname "$CLIENT_HOSTNAME" \
         --argjson monitors "$MONITORS" \
