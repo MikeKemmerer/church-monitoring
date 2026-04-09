@@ -387,8 +387,19 @@ if [[ $UPDATE -eq 1 ]]; then
     echo "Certificates and enrollment unchanged."
     echo "Updated: config, CGI scripts, collector."
     echo ""
+
+    # Read final config for summary
+    FINAL_CEC=$(jq -r '.cec_enabled // false' "$CONF_DIR/client-config.json" 2>/dev/null || echo "false")
+    FINAL_MONITORS=$(jq -c '.monitors' "$CONF_DIR/client-config.json" 2>/dev/null || echo "[]")
+
     echo "Monitored services:"
-    echo "$MONITORS" | jq -r '.[] | "  - " + .name + " (" + .type + ")"'
+    echo "$FINAL_MONITORS" | jq -r '.[] | "  - " + .name + " (" + .type + ")"'
+    echo ""
+    if [[ "$FINAL_CEC" == "true" ]]; then
+        echo "CEC: enabled (on-demand check + control)"
+    else
+        echo "CEC: disabled"
+    fi
     exit 0
 fi
 
@@ -466,12 +477,14 @@ echo "=============================================="
 echo ""
 echo "Agent: https://${CLIENT_HOSTNAME}:${CLIENT_PORT}/"
 echo "Status endpoint: /cgi-bin/status.cgi"
-if [[ "$CEC_ENABLED" == "true" ]]; then
-    echo "CEC endpoint: /cgi-bin/cec-check.cgi (on-demand)"
-    echo "CEC control: /cgi-bin/cec-control.cgi (on/standby/active)"
-fi
 echo ""
 echo "Monitored services:"
 echo "$MONITORS" | jq -r '.[] | "  - " + .name + " (" + .type + ")"'
+echo ""
+if [[ "$CEC_ENABLED" == "true" ]]; then
+    echo "CEC: enabled (on-demand check + control)"
+else
+    echo "CEC: disabled"
+fi
 echo ""
 echo "Next: Verify on the dashboard that this client appears."
