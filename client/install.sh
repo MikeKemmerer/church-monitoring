@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-client.sh — Sets up a church-monitoring agent on a monitored host.
+# install.sh — Sets up a church-monitoring agent on a monitored host.
 # Run as root on each host to be monitored.
 set -e
 
@@ -13,7 +13,7 @@ CLIENT_PORT=8033
 # ── Help ──────────────────────────────────────────────────────────────
 show_help() {
     cat <<'EOF'
-Usage: install-client.sh [OPTIONS]
+Usage: client/install.sh [OPTIONS]
 
 Sets up a church-monitoring agent on this host.
 
@@ -29,7 +29,7 @@ The client installer will:
     5. Install status collection scripts and set up cron
 
 Prerequisites:
-    - The monitoring server must be installed first (install-server.sh)
+    - The monitoring server must be installed first (server/install.sh)
     - You need the server address and an enrollment token
 
 Monitored services (auto-detected, prompted for each):
@@ -235,14 +235,14 @@ fi
 echo ""
 echo "Step 4/6: Installing CGI scripts..."
 
-cp "$SCRIPT_DIR/client/status.cgi" "$CGI_DIR/status.cgi"
-cp "$SCRIPT_DIR/client/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
-cp "$SCRIPT_DIR/client/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
+cp "$SCRIPT_DIR/status.cgi" "$CGI_DIR/status.cgi"
+cp "$SCRIPT_DIR/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
+cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
 # Install collect script
-cp "$SCRIPT_DIR/client/collect.sh" /usr/local/bin/church-monitoring-collect
+cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
 
 echo "  CGI scripts and collector installed."

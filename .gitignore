@@ -1,6 +1,6 @@
-# Sensitive config (use .example.json as templates)
-client-config.json
-server-config.json
+# Sensitive config (use config.example.json in each directory as templates)
+client/config.json
+server/config.json
 
 # Certificates and keys
 *.pem

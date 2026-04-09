@@ -31,7 +31,7 @@ graph LR
 Run on the machine that will host the monitoring dashboard:
 
 ```bash
-sudo ./install-server.sh
+sudo ./server/install.sh
 ```
 
 The installer will:
@@ -58,7 +58,7 @@ After installation, note the enrollment token printed at the end — you'll need
 Run on each machine to be monitored:
 
 ```bash
-sudo ./install-client.sh
+sudo ./client/install.sh
 ```
 
 You'll be prompted for:
@@ -79,7 +79,7 @@ The installer will:
 To re-enroll or renew the certificate:
 
 ```bash
-sudo ./install-client.sh --renew
+sudo ./client/install.sh --renew
 ```
 
 ### Monitored Services
@@ -101,13 +101,13 @@ Run these on the **server**:
 
 ```bash
 # Generate a new enrollment token for another client
-sudo ./generate-token.sh
+sudo ./server/generate-token.sh
 
 # Manage dashboard passwords (add, remove, change)
-sudo ./manage-auth.sh
+sudo ./server/manage-auth.sh
 
 # Manually sign a certificate signing request
-sudo ./sign-csr.sh <path-to-csr>
+sudo ./server/sign-csr.sh <path-to-csr>
 ```
 
 ## File Locations
@@ -136,7 +136,7 @@ sudo ./sign-csr.sh <path-to-csr>
 
 ## Configuration Examples
 
-See `server-config.example.json` and `client-config.example.json` for reference configurations.
+See `server/config.example.json` and `client/config.example.json` for reference configurations.
 
 ## License
 

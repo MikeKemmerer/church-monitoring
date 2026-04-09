@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-server.sh — Sets up the church-monitoring dashboard server.
+# install.sh — Sets up the church-monitoring dashboard server.
 # Run as root on the host that will serve the monitoring dashboard.
 set -e
 
@@ -15,7 +15,7 @@ DEFAULT_PORT=8080
 # ── Help ──────────────────────────────────────────────────────────────
 show_help() {
     cat <<'EOF'
-Usage: install-server.sh [OPTIONS]
+Usage: server/install.sh [OPTIONS]
 
 Sets up the church-monitoring dashboard server.
 
@@ -238,15 +238,15 @@ fi
 echo "Step 7/8: Installing dashboard and CGI scripts..."
 
 # Dashboard
-cp "$SCRIPT_DIR/server/index.html" "$WEB_ROOT/index.html"
-cp "$SCRIPT_DIR/server/help.html" "$WEB_ROOT/help.html"
+cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
+cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
 chown -R www-data:www-data "$WEB_ROOT"
 
 # CGI scripts
-cp "$SCRIPT_DIR/server/enroll.cgi" "$CGI_DIR/enroll.cgi"
-cp "$SCRIPT_DIR/server/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
-cp "$SCRIPT_DIR/server/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
-cp "$SCRIPT_DIR/server/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
+cp "$SCRIPT_DIR/enroll.cgi" "$CGI_DIR/enroll.cgi"
+cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
+cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
+cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
@@ -354,4 +354,4 @@ echo "------"
 cat "$CA_DIR/ca.crt"
 echo "------"
 echo ""
-echo "Next step: Run install-client.sh on each monitored host."
+echo "Next step: Run client/install.sh on each monitored host."
