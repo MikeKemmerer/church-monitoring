@@ -155,11 +155,12 @@ else
         -out "$CA_DIR/ca.crt" \
         -days 3650 -sha256 \
         -subj "/CN=church-monitoring-ca" 2>/dev/null
-    chown root:www-data "$CA_DIR/ca.key"
-    chmod 640 "$CA_DIR/ca.key"
-    chmod 644 "$CA_DIR/ca.crt"
     echo "  CA created (valid 10 years)."
 fi
+# Ensure CGI scripts can read CA files
+chown root:www-data "$CA_DIR/ca.key" "$CA_DIR/ca.crt" 2>/dev/null
+chmod 640 "$CA_DIR/ca.key"
+chmod 644 "$CA_DIR/ca.crt"
 
 # ── Create server client certificate ─────────────────────────────────
 echo "Step 4/7: Creating server client certificate..."
@@ -177,11 +178,14 @@ else
         -days 730 -sha256 \
         -out "$SSL_DIR/server.crt" 2>/dev/null
     rm -f "$SSL_DIR/server.csr"
-    chown root:www-data "$SSL_DIR/server.key"
-    chmod 640 "$SSL_DIR/server.key"
-    chmod 644 "$SSL_DIR/server.crt"
     echo "  Server client certificate created (valid 2 years)."
 fi
+# Ensure CGI scripts can read server cert/key
+if [[ -f "$SSL_DIR/server.key" ]]; then
+    chown root:www-data "$SSL_DIR/server.key"
+    chmod 640 "$SSL_DIR/server.key"
+fi
+[[ -f "$SSL_DIR/server.crt" ]] && chmod 644 "$SSL_DIR/server.crt"
 
 # ── HTTP basic auth ──────────────────────────────────────────────────
 echo "Step 5/7: Configuring dashboard authentication..."
