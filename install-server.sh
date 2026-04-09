@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh — Sets up the church-monitoring dashboard server.
+# install-server.sh — Sets up the church-monitoring dashboard server.
 # Run as root on the host that will serve the monitoring dashboard.
 set -e
 
@@ -15,7 +15,7 @@ DEFAULT_PORT=8080
 # ── Help ──────────────────────────────────────────────────────────────
 show_help() {
     cat <<'EOF'
-Usage: server/install.sh [OPTIONS]
+Usage: install-server.sh [OPTIONS]
 
 Sets up the church-monitoring dashboard server.
 
@@ -23,8 +23,6 @@ Options:
     --help          Show this help message
     --port NUM      Dashboard port (default: 8080)
     --renew-cert    Regenerate the server client certificate only
-    --update        Update dashboard, CGI scripts, and admin tools only
-                    (keeps CA, certs, config, auth, and port unchanged)
 
 The server installer will:
     1. Install required packages (apache2, openssl, jq, apache2-utils)
@@ -55,7 +53,6 @@ EOF
 
 # ── Parse arguments ───────────────────────────────────────────────────
 RENEW_CERT=0
-UPDATE=0
 PORT=""
 
 while [[ $# -gt 0 ]]; do
@@ -63,7 +60,6 @@ while [[ $# -gt 0 ]]; do
         --help) show_help ;;
         --port) PORT="$2"; shift 2 ;;
         --renew-cert) RENEW_CERT=1; shift ;;
-        --update) UPDATE=1; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -126,116 +122,6 @@ install_packages() {
 
 echo "=== Church Monitoring Server Installer ==="
 echo ""
-
-if [[ $UPDATE -eq 1 ]]; then
-    # ── Update mode: validate existing installation ───────────────
-    echo "Update mode — verifying existing installation..."
-    MISSING=""
-    [[ ! -f "$CA_DIR/ca.crt" ]]              && MISSING="$MISSING  - CA certificate ($CA_DIR/ca.crt)\n"
-    [[ ! -f "$CA_DIR/ca.key" ]]              && MISSING="$MISSING  - CA private key ($CA_DIR/ca.key)\n"
-    [[ ! -f "$SSL_DIR/server.crt" ]]         && MISSING="$MISSING  - Server certificate ($SSL_DIR/server.crt)\n"
-    [[ ! -f "$SSL_DIR/server.key" ]]         && MISSING="$MISSING  - Server private key ($SSL_DIR/server.key)\n"
-    [[ ! -f "$SSL_DIR/dashboard.crt" ]]      && MISSING="$MISSING  - Dashboard certificate ($SSL_DIR/dashboard.crt)\n"
-    [[ ! -f "$SSL_DIR/dashboard.key" ]]      && MISSING="$MISSING  - Dashboard private key ($SSL_DIR/dashboard.key)\n"
-    [[ ! -f "$CONF_DIR/server-config.json" ]]&& MISSING="$MISSING  - Server configuration ($CONF_DIR/server-config.json)\n"
-    [[ ! -f "$CONF_DIR/.htpasswd" ]]         && MISSING="$MISSING  - Dashboard credentials ($CONF_DIR/.htpasswd)\n"
-
-    if [[ -n "$MISSING" ]]; then
-        echo "" >&2
-        echo "Update cannot proceed — the following required files are missing:" >&2
-        echo -e "$MISSING" >&2
-        echo "A fresh installation is required. Run without --update to set up" >&2
-        echo "the server from scratch." >&2
-        exit 1
-    fi
-
-    PORT=$(jq -r '.port // empty' "$CONF_DIR/server-config.json" 2>/dev/null)
-    PORT="${PORT:-$DEFAULT_PORT}"
-    HTPASSWD="$CONF_DIR/.htpasswd"
-    echo "  Installation verified (port $PORT)."
-    echo ""
-
-    # Install web files and scripts
-    echo "Updating dashboard and CGI scripts..."
-
-    cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
-    cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
-    chown -R www-data:www-data "$WEB_ROOT"
-
-    cp "$SCRIPT_DIR/enroll.cgi" "$CGI_DIR/enroll.cgi"
-    cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
-    cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
-    cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
-    chmod 755 "$CGI_DIR"/*.cgi
-    chown -R www-data:www-data "$CGI_DIR"
-
-    cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh
-    cp "$SCRIPT_DIR/sign-csr.sh" /usr/local/bin/sign-csr.sh
-    cp "$SCRIPT_DIR/manage-auth.sh" /usr/local/bin/manage-auth.sh
-    chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh /usr/local/bin/manage-auth.sh
-
-    # Rewrite Apache vhost (port and paths may have changed in code)
-    echo "Updating Apache configuration..."
-    VHOST="/etc/apache2/sites-available/church-monitoring-server.conf"
-
-    cat > "$VHOST" <<VHEOF
-<VirtualHost *:${PORT}>
-    ServerName church-monitoring
-
-    SSLEngine on
-    SSLCertificateFile ${SSL_DIR}/dashboard.crt
-    SSLCertificateKeyFile ${SSL_DIR}/dashboard.key
-
-    DocumentRoot ${WEB_ROOT}
-
-    <Directory ${WEB_ROOT}>
-        Options -Indexes
-        AllowOverride None
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
-    </Directory>
-
-    ScriptAlias /cgi-bin/ ${CGI_DIR}/
-
-    <Directory ${CGI_DIR}>
-        Options +ExecCGI
-        AddHandler cgi-script .cgi
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
-    </Directory>
-
-    # Enrollment endpoint — protected by token, not basic auth
-    <Location /cgi-bin/enroll.cgi>
-        Require all granted
-    </Location>
-
-    ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log
-    CustomLog \${APACHE_LOG_DIR}/church-monitoring-access.log combined
-</VirtualHost>
-VHEOF
-
-    systemctl reload apache2
-
-    CLIENTS=$(jq '.clients | length' "$CONF_DIR/server-config.json" 2>/dev/null || echo "0")
-
-    echo ""
-    echo "=============================================="
-    echo "  Server update complete!"
-    echo "=============================================="
-    echo ""
-    echo "Dashboard: https://$(hostname -I | awk '{print $1}'):${PORT}/"
-    echo "Enrolled clients: $CLIENTS"
-    echo ""
-    echo "CA, certificates, authentication, and port unchanged."
-    echo "Updated: dashboard, CGI scripts, admin tools, Apache vhost."
-    exit 0
-fi
 
 # ── Prompt for port ──────────────────────────────────────────────────
 if [[ -z "$PORT" ]]; then
@@ -352,15 +238,15 @@ fi
 echo "Step 7/8: Installing dashboard and CGI scripts..."
 
 # Dashboard
-cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
-cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
+cp "$SCRIPT_DIR/server/index.html" "$WEB_ROOT/index.html"
+cp "$SCRIPT_DIR/server/help.html" "$WEB_ROOT/help.html"
 chown -R www-data:www-data "$WEB_ROOT"
 
 # CGI scripts
-cp "$SCRIPT_DIR/enroll.cgi" "$CGI_DIR/enroll.cgi"
-cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
-cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
-cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
+cp "$SCRIPT_DIR/server/enroll.cgi" "$CGI_DIR/enroll.cgi"
+cp "$SCRIPT_DIR/server/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
+cp "$SCRIPT_DIR/server/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
+cp "$SCRIPT_DIR/server/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
@@ -468,4 +354,4 @@ echo "------"
 cat "$CA_DIR/ca.crt"
 echo "------"
 echo ""
-echo "Next step: Run client/install.sh on each monitored host."
+echo "Next step: Run install-client.sh on each monitored host."
