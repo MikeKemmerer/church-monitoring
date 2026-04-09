@@ -58,6 +58,8 @@ button:disabled{opacity:0.5;cursor:default}
 
 <script>
 var autoTimer = null;
+var cecCache = {};  // Persistent CEC results keyed by client name
+var cecTimerInterval = null;
 
 function formatUptime(s) {
     if (!s && s !== 0) return '—';
@@ -137,7 +139,10 @@ function renderCard(data) {
 
     // CEC result area
     if (data.cec_enabled) {
-        html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '"></div>';
+        var cached = cecCache[name];
+        var cecDisplay = cached ? 'display:block' : 'display:none';
+        var cecContent = cached ? renderCecResult(cached) : '';
+        html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
     }
 
     html += '</div>';
@@ -151,6 +156,27 @@ function escapeHtml(s) {
 
 function escapeAttr(s) {
     return String(s).replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
+function renderCecResult(cached) {
+    var power = cached.tv_power || 'unknown';
+    var input = cached.hdmi_input || 'unknown';
+    var color = power === 'on' ? '#27ae60' : power === 'standby' ? '#f39c12' : '#7f8c8d';
+    return '<span style="color:' + color + '">&#9679;</span> TV: <b>' + escapeHtml(power) +
+        '</b> &nbsp; HDMI: <b>' + escapeHtml(input) + '</b> &nbsp; ' +
+        '<span class="cec-ago" data-ts="' + cached.fetchedAt + '">' + ago(new Date(cached.fetchedAt).toISOString()) + '</span>';
+}
+
+function updateCecTimers() {
+    var els = document.querySelectorAll('.cec-ago');
+    els.forEach(function(el) {
+        var ts = parseInt(el.getAttribute('data-ts'), 10);
+        if (!ts) return;
+        var diff = Math.floor((Date.now() - ts) / 1000);
+        if (diff < 60) el.textContent = diff + 's ago';
+        else if (diff < 3600) el.textContent = Math.floor(diff / 60) + 'm ' + (diff % 60) + 's ago';
+        else el.textContent = Math.floor(diff / 3600) + 'h ' + Math.floor((diff % 3600) / 60) + 'm ago';
+    });
 }
 
 function fetchAll() {
@@ -192,22 +218,22 @@ function checkCec(name) {
         .then(function(data) {
             if (data.error) {
                 el.innerHTML = '&#9888; ' + escapeHtml(data.error);
+                delete cecCache[name];
                 return;
             }
-            var power = data.tv_power || 'unknown';
-            var input = data.hdmi_input || 'unknown';
-            var color = power === 'on' ? '#27ae60' : power === 'standby' ? '#f39c12' : '#7f8c8d';
-            el.innerHTML = '<span style="color:' + color + '">&#9679;</span> TV: <b>' + escapeHtml(power) +
-                '</b> &nbsp; HDMI: <b>' + escapeHtml(input) + '</b> &nbsp; ' +
-                '<span class="stale">' + ago(data.timestamp) + '</span>';
+            data.fetchedAt = Date.now();
+            cecCache[name] = data;
+            el.innerHTML = renderCecResult(data);
         })
         .catch(function(err) {
             el.innerHTML = '&#9888; CEC check failed: ' + escapeHtml(String(err));
+            delete cecCache[name];
         });
 }
 
 // Initial fetch
 fetchAll();
+cecTimerInterval = setInterval(updateCecTimers, 1000);
 
 // Auto-refresh
 function resetAutoRefresh() {
