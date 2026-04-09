@@ -6,7 +6,7 @@ set -e
 CONF_DIR="/etc/church-monitoring"
 CACHE_DIR="/var/cache/church-monitoring"
 CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
-LOCK="/var/run/church-monitoring-collect.lock"
+LOCK=\"$CACHE_DIR/.collect.lock\"
 VHOST="/etc/apache2/sites-available/church-monitoring-client.conf"
 CLIENT_PORT=8033
 

@@ -131,6 +131,8 @@ install_packages
 echo ""
 echo "Step 2/6: Server enrollment..."
 mkdir -p "$CONF_DIR" "$SSL_DIR" "$CACHE_DIR" "$CGI_DIR"
+chown root:www-data "$CACHE_DIR"
+chmod 775 "$CACHE_DIR"
 
 # Load existing config for --renew
 if [[ $RENEW -eq 1 && -f "$CONF_DIR/client-config.json" ]]; then

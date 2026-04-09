@@ -7,7 +7,7 @@ set -euo pipefail
 CONFIG="/etc/church-monitoring/client-config.json"
 CACHE="/var/cache/church-monitoring/status.json"
 CACHE_DIR="/var/cache/church-monitoring"
-LOCK="/var/run/church-monitoring-collect.lock"
+LOCK="$CACHE_DIR/.collect.lock"
 
 # Ensure cache directory exists
 mkdir -p "$CACHE_DIR"
@@ -110,4 +110,5 @@ jq -n \
     }' > "${CACHE}.tmp"
 
 mv "${CACHE}.tmp" "$CACHE"
-chmod 644 "$CACHE"
+chgrp www-data "$CACHE" 2>/dev/null || true
+chmod 664 "$CACHE"
