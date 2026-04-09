@@ -91,7 +91,6 @@ The client auto-detects and offers to monitor:
 | apache2 | systemd | Web server |
 | church-calendar | systemd | Calendar display server |
 | videokiosk2 | systemd | Video kiosk v2 |
-| videokiosk | systemd | Video kiosk legacy |
 | vlc | process | VLC media player |
 | midori | process | Midori web browser |
 | CEC | on-demand | TV power/input via HDMI-CEC |

@@ -4,7 +4,6 @@
         {"name": "apache2", "type": "systemd"},
         {"name": "church-calendar", "type": "systemd"},
         {"name": "videokiosk2", "type": "systemd"},
-        {"name": "videokiosk", "type": "systemd"},
         {"name": "vlc", "type": "process"},
         {"name": "midori", "type": "process"}
     ],

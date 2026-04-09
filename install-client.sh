@@ -36,7 +36,6 @@ Monitored services (auto-detected, prompted for each):
     - apache2          Web server (systemd)
     - church-calendar  Calendar display server (systemd)
     - videokiosk2      Video kiosk v2 (systemd)
-    - videokiosk       Video kiosk legacy (systemd)
     - vlc              VLC media player (process)
     - midori           Midori web browser (process)
     - CEC              TV power/input via CEC (on-demand only)
@@ -185,10 +184,9 @@ declare -A SERVICE_MAP=(
     ["apache2"]="Apache web server"
     ["church-calendar"]="Church calendar display"
     ["videokiosk2"]="Video kiosk v2"
-    ["videokiosk"]="Video kiosk (legacy)"
 )
 
-for svc in apache2 church-calendar videokiosk2 videokiosk; do
+for svc in apache2 church-calendar videokiosk2; do
     DESC="${SERVICE_MAP[$svc]}"
     if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
         if ask_yn "Monitor ${svc} (${DESC})?" "y"; then
