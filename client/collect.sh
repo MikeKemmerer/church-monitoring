@@ -54,7 +54,13 @@ if [ -f "$CONFIG" ]; then
         if [ "$TYPE" = "systemd" ]; then
             STATUS=$(systemctl is-active "$NAME" 2>/dev/null || echo "inactive")
         elif [ "$TYPE" = "process" ]; then
-            COUNT=$(pgrep -xc "$NAME" 2>/dev/null) || COUNT=0
+            MATCH=$(echo "$line" | jq -r '.match // empty')
+            if [ -n "$MATCH" ]; then
+                # Substring match against full ps -ef output
+                COUNT=$(ps -ef 2>/dev/null | grep -F "$MATCH" | grep -vc grep) || COUNT=0
+            else
+                COUNT=$(pgrep -xc "$NAME" 2>/dev/null) || COUNT=0
+            fi
             if [ "$COUNT" -gt "0" ]; then
                 STATUS="running ($COUNT)"
             else

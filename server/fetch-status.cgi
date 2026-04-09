@@ -22,9 +22,9 @@ while IFS= read -r client; do
     HOST=$(echo "$client" | jq -r '.host')
     PORT=$(echo "$client" | jq -r '.port')
 
-    DATA=$(curl -s --connect-timeout 5 --max-time 10 \
+    DATA=$(curl -s --connect-timeout 5 --max-time 15 \
         --cert "$CERT" --key "$KEY" --cacert "$CA" \
-        "https://${HOST}:${PORT}/cgi-bin/status.cgi" 2>/dev/null) || true
+        "https://${HOST}:${PORT}/cgi-bin/status.cgi?refresh=1" 2>/dev/null) || true
 
     if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
         DATA=$(jq -n --arg name "$NAME" '{"error":"unreachable","hostname":$name}')

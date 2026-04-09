@@ -205,7 +205,13 @@ for proc in vlc midori; do
     DESC="${PROC_MAP[$proc]}"
     if command -v "$proc" &>/dev/null; then
         if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
-            MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+            read -r -p "  Match substring in ps -ef (leave empty for exact name match): " PROC_MATCH
+            if [[ -n "$PROC_MATCH" ]]; then
+                MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
+                    '. + [{"name":$n,"type":"process","match":$m}]')
+            else
+                MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+            fi
         fi
     fi
 done
