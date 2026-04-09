@@ -246,6 +246,7 @@ chown -R www-data:www-data "$WEB_ROOT"
 cp "$SCRIPT_DIR/server/enroll.cgi" "$CGI_DIR/enroll.cgi"
 cp "$SCRIPT_DIR/server/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
 cp "$SCRIPT_DIR/server/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
+cp "$SCRIPT_DIR/server/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 

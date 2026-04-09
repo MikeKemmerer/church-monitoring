@@ -237,6 +237,7 @@ echo "Step 4/6: Installing CGI scripts..."
 
 cp "$SCRIPT_DIR/client/status.cgi" "$CGI_DIR/status.cgi"
 cp "$SCRIPT_DIR/client/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
+cp "$SCRIPT_DIR/client/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
@@ -322,6 +323,7 @@ echo "Agent: https://${CLIENT_HOSTNAME}:${CLIENT_PORT}/"
 echo "Status endpoint: /cgi-bin/status.cgi"
 if [[ "$CEC_ENABLED" == "true" ]]; then
     echo "CEC endpoint: /cgi-bin/cec-check.cgi (on-demand)"
+    echo "CEC control: /cgi-bin/cec-control.cgi (on/standby/active)"
 fi
 echo ""
 echo "Monitored services:"
