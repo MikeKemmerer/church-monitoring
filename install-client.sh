@@ -150,10 +150,10 @@ openssl req -newkey rsa:2048 -nodes \
     -subj "/CN=${CLIENT_HOSTNAME}" 2>/dev/null
 chmod 600 "$SSL_DIR/agent.key"
 
-# Enroll with server
+# Enroll with server (HTTPS with self-signed cert)
 echo "  Enrolling with server at $SERVER_ADDR..."
-ENROLL_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    "http://${SERVER_ADDR}/cgi-bin/enroll.cgi?token=${ENROLL_TOKEN}&hostname=${CLIENT_HOSTNAME}&port=${CLIENT_PORT}" \
+ENROLL_RESPONSE=$(curl -sk -w "\n%{http_code}" -X POST \
+    "https://${SERVER_ADDR}/cgi-bin/enroll.cgi?token=${ENROLL_TOKEN}&hostname=${CLIENT_HOSTNAME}&port=${CLIENT_PORT}" \
     --data-binary @"$SSL_DIR/agent.csr" 2>/dev/null) || true
 
 HTTP_CODE=$(echo "$ENROLL_RESPONSE" | tail -1)

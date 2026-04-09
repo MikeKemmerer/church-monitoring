@@ -28,13 +28,14 @@ The server installer will:
     1. Install required packages (apache2, openssl, jq, apache2-utils)
     2. Create a Certificate Authority (CA) for mutual TLS
     3. Generate a server client certificate (used to fetch from agents)
-    4. Set up the monitoring dashboard on the specified port
+    4. Generate a self-signed TLS certificate for the dashboard
     5. Configure HTTP basic authentication for the dashboard
-    6. Create the enrollment endpoint for client onboarding
-    7. Generate the first enrollment token
+    6. Set up the monitoring dashboard on the specified port
+    7. Create the enrollment endpoint for client onboarding
+    8. Generate the first enrollment token
 
 After installation:
-    - Access the dashboard at http://<host>:<port>/
+    - Access the dashboard at https://<host>:<port>/
     - Generate more enrollment tokens: sudo generate-token.sh
     - Manage passwords: sudo manage-auth.sh
     - Sign CSRs manually: sudo sign-csr.sh <path-to-csr>
@@ -134,11 +135,11 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [[ "$PORT" -lt 1 || "$PORT" -gt 65535 ]]; then
 fi
 
 echo ""
-echo "Step 1/7: Installing packages..."
+echo "Step 1/8: Installing packages..."
 install_packages
 
 # ── Create directories ───────────────────────────────────────────────
-echo "Step 2/7: Creating directories..."
+echo "Step 2/8: Creating directories..."
 mkdir -p "$CA_DIR" "$SSL_DIR" "$TOKEN_DIR" "$WEB_ROOT" "$CGI_DIR"
 mkdir -p "$CONF_DIR/signed-certs"
 chown root:www-data "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR" "$CONF_DIR/signed-certs"
@@ -146,7 +147,7 @@ chmod 750 "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR"
 chmod 770 "$CONF_DIR/signed-certs"
 
 # ── Create CA ─────────────────────────────────────────────────────────
-echo "Step 3/7: Creating Certificate Authority..."
+echo "Step 3/8: Creating Certificate Authority..."
 if [[ -f "$CA_DIR/ca.key" ]]; then
     echo "  CA already exists — skipping. Use openssl to regenerate manually if needed."
 else
@@ -163,7 +164,7 @@ chmod 640 "$CA_DIR/ca.key"
 chmod 644 "$CA_DIR/ca.crt"
 
 # ── Create server client certificate ─────────────────────────────────
-echo "Step 4/7: Creating server client certificate..."
+echo "Step 4/8: Creating server client certificate..."
 if [[ -f "$SSL_DIR/server.crt" ]]; then
     echo "  Server cert already exists — skipping. Use --renew-cert to regenerate."
 else
@@ -187,8 +188,25 @@ if [[ -f "$SSL_DIR/server.key" ]]; then
 fi
 [[ -f "$SSL_DIR/server.crt" ]] && chmod 644 "$SSL_DIR/server.crt"
 
+# ── Create dashboard TLS certificate ─────────────────────────────────
+echo "Step 5/8: Creating dashboard TLS certificate..."
+DASH_CERT="$SSL_DIR/dashboard.crt"
+DASH_KEY="$SSL_DIR/dashboard.key"
+if [[ -f "$DASH_CERT" ]]; then
+    echo "  Dashboard cert already exists — skipping."
+else
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$DASH_KEY" \
+        -out "$DASH_CERT" \
+        -days 3650 -sha256 \
+        -subj "/CN=$(hostname)" 2>/dev/null
+    echo "  Self-signed dashboard certificate created (valid 10 years)."
+fi
+chmod 600 "$DASH_KEY"
+chmod 644 "$DASH_CERT"
+
 # ── HTTP basic auth ──────────────────────────────────────────────────
-echo "Step 5/7: Configuring dashboard authentication..."
+echo "Step 6/8: Configuring dashboard authentication..."
 HTPASSWD="$CONF_DIR/.htpasswd"
 if [[ -f "$HTPASSWD" ]]; then
     echo "  .htpasswd already exists — skipping. Use manage-auth.sh to change."
@@ -217,7 +235,7 @@ else
 fi
 
 # ── Install web files ────────────────────────────────────────────────
-echo "Step 6/7: Installing dashboard and CGI scripts..."
+echo "Step 7/8: Installing dashboard and CGI scripts..."
 
 # Dashboard
 cp "$SCRIPT_DIR/server/index.html" "$WEB_ROOT/index.html"
@@ -251,12 +269,16 @@ chown root:www-data "$CONF_DIR/server-config.json"
 chmod 660 "$CONF_DIR/server-config.json"
 
 # ── Apache vhost ──────────────────────────────────────────────────────
-echo "Step 7/7: Configuring Apache..."
+echo "Step 8/8: Configuring Apache..."
 VHOST="/etc/apache2/sites-available/church-monitoring-server.conf"
 
 cat > "$VHOST" <<VHEOF
 <VirtualHost *:${PORT}>
     ServerName church-monitoring
+
+    SSLEngine on
+    SSLCertificateFile ${SSL_DIR}/dashboard.crt
+    SSLCertificateKeyFile ${SSL_DIR}/dashboard.key
 
     DocumentRoot ${WEB_ROOT}
 

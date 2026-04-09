@@ -162,6 +162,10 @@ function fetchAll() {
                 cards.innerHTML = '<div class="loading-msg" style="color:#c0392b;">Error: ' + escapeHtml(data.error || 'unexpected response') + '</div>';
                 return;
             }
+            if (data.length === 0) {
+                cards.innerHTML = '<div class="loading-msg">No clients enrolled yet.<br><br>Run <code>sudo ./install-client.sh</code> on a host to add it.</div>';
+                return;
+            }
             var html = '';
             data.forEach(function(d) { html += renderCard(d); });
             cards.innerHTML = html;
