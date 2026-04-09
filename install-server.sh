@@ -90,7 +90,8 @@ if [[ $RENEW_CERT -eq 1 ]]; then
         -days 730 -sha256 \
         -out "$SSL_DIR/server.crt" 2>/dev/null
     rm -f "$SSL_DIR/server.csr"
-    chmod 600 "$SSL_DIR/server.key"
+    chown root:www-data "$SSL_DIR/server.key"
+    chmod 640 "$SSL_DIR/server.key"
     chmod 644 "$SSL_DIR/server.crt"
     echo "Server certificate renewed. Valid for 2 years."
     echo "Restart Apache to use the new certificate: sudo systemctl restart apache2"
@@ -140,7 +141,9 @@ install_packages
 echo "Step 2/7: Creating directories..."
 mkdir -p "$CA_DIR" "$SSL_DIR" "$TOKEN_DIR" "$WEB_ROOT" "$CGI_DIR"
 mkdir -p "$CONF_DIR/signed-certs"
-chmod 700 "$CA_DIR" "$TOKEN_DIR"
+chown root:www-data "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR" "$CONF_DIR/signed-certs"
+chmod 750 "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR"
+chmod 770 "$CONF_DIR/signed-certs"
 
 # ── Create CA ─────────────────────────────────────────────────────────
 echo "Step 3/7: Creating Certificate Authority..."
@@ -152,7 +155,8 @@ else
         -out "$CA_DIR/ca.crt" \
         -days 3650 -sha256 \
         -subj "/CN=church-monitoring-ca" 2>/dev/null
-    chmod 600 "$CA_DIR/ca.key"
+    chown root:www-data "$CA_DIR/ca.key"
+    chmod 640 "$CA_DIR/ca.key"
     chmod 644 "$CA_DIR/ca.crt"
     echo "  CA created (valid 10 years)."
 fi
@@ -173,7 +177,8 @@ else
         -days 730 -sha256 \
         -out "$SSL_DIR/server.crt" 2>/dev/null
     rm -f "$SSL_DIR/server.csr"
-    chmod 600 "$SSL_DIR/server.key"
+    chown root:www-data "$SSL_DIR/server.key"
+    chmod 640 "$SSL_DIR/server.key"
     chmod 644 "$SSL_DIR/server.crt"
     echo "  Server client certificate created (valid 2 years)."
 fi
@@ -221,6 +226,12 @@ cp "$SCRIPT_DIR/server/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
 cp "$SCRIPT_DIR/server/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
+
+# Ensure server-config.json is writable by CGI (enrollment adds clients)
+if [[ -f "$CONFIG" ]]; then
+    chown root:www-data "$CONFIG"
+    chmod 660 "$CONFIG"
+fi
 
 # Admin scripts
 cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh

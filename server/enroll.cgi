@@ -9,19 +9,24 @@
 #     "http://server:8080/cgi-bin/enroll.cgi?token=TOKEN&hostname=NAME&port=8033" \
 #     --data-binary @client.csr
 
-echo "Content-Type: application/json"
-
 CA_DIR="/etc/church-monitoring/ca"
 TOKEN_DIR="/etc/church-monitoring/tokens"
 CONFIG="/etc/church-monitoring/server-config.json"
 CERT_DIR="/etc/church-monitoring/signed-certs"
 
+# CGI error helper — ensures valid CGI output on any failure
+cgi_error() {
+    local status="$1" msg="$2"
+    echo "Status: $status"
+    echo "Content-Type: application/json"
+    echo ""
+    echo "{\"error\":\"$msg\"}"
+    exit 0
+}
+
 # Only POST
 if [ "$REQUEST_METHOD" != "POST" ]; then
-    echo "Status: 405 Method Not Allowed"
-    echo ""
-    echo '{"error":"POST required"}'
-    exit 0
+    cgi_error "405 Method Not Allowed" "POST required"
 fi
 
 # Parse query string
@@ -33,36 +38,24 @@ CLIENT_PORT=$(parse_qs "port")
 
 # Validate inputs
 if [ -z "$TOKEN" ]; then
-    echo "Status: 400 Bad Request"
-    echo ""
-    echo '{"error":"missing token parameter"}'
-    exit 0
+    cgi_error "400 Bad Request" "missing token parameter"
 fi
 
 # Sanitize token to prevent path traversal
 TOKEN_CLEAN=$(echo "$TOKEN" | tr -cd 'a-zA-Z0-9')
 if [ "$TOKEN_CLEAN" != "$TOKEN" ] || [ -z "$TOKEN_CLEAN" ]; then
-    echo "Status: 400 Bad Request"
-    echo ""
-    echo '{"error":"invalid token format"}'
-    exit 0
+    cgi_error "400 Bad Request" "invalid token format"
 fi
 
 if [ -z "$CLIENT_HOST" ]; then
-    echo "Status: 400 Bad Request"
-    echo ""
-    echo '{"error":"missing hostname parameter"}'
-    exit 0
+    cgi_error "400 Bad Request" "missing hostname parameter"
 fi
 
 CLIENT_PORT="${CLIENT_PORT:-8033}"
 
 # Validate token exists
 if [ ! -f "$TOKEN_DIR/$TOKEN_CLEAN" ]; then
-    echo "Status: 403 Forbidden"
-    echo ""
-    echo '{"error":"invalid or expired enrollment token"}'
-    exit 0
+    cgi_error "403 Forbidden" "invalid or expired enrollment token"
 fi
 
 # Read CSR from POST body
@@ -72,10 +65,7 @@ cat > "$TMPDIR/client.csr"
 
 # Validate CSR format
 if ! openssl req -noout -verify -in "$TMPDIR/client.csr" 2>/dev/null; then
-    echo "Status: 400 Bad Request"
-    echo ""
-    echo '{"error":"invalid CSR format"}'
-    exit 0
+    cgi_error "400 Bad Request" "invalid CSR format"
 fi
 
 # Sign the CSR
@@ -91,10 +81,7 @@ if ! openssl x509 -req \
     -days 730 \
     -sha256 \
     -out "$SIGNED_CERT" 2>/dev/null; then
-    echo "Status: 500 Internal Server Error"
-    echo ""
-    echo '{"error":"failed to sign CSR"}'
-    exit 0
+    cgi_error "500 Internal Server Error" "failed to sign CSR"
 fi
 
 # Burn the token
@@ -116,6 +103,7 @@ if [ -f "$CONFIG" ]; then
 fi
 
 # Return signed cert and CA cert
+echo "Content-Type: application/json"
 echo ""
 jq -n \
     --arg cert "$SIGNED_PEM" \
