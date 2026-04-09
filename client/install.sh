@@ -137,7 +137,11 @@ if [[ -z "$ENROLL_TOKEN" ]]; then
 fi
 
 # Determine this host's name
-DEFAULT_HOSTNAME=$(hostname)
+BUNDLED_CONFIG="$SCRIPT_DIR/config.json"
+if [[ -f "$BUNDLED_CONFIG" ]]; then
+    DEFAULT_HOSTNAME=$(jq -r '.hostname // empty' "$BUNDLED_CONFIG" 2>/dev/null)
+fi
+DEFAULT_HOSTNAME="${DEFAULT_HOSTNAME:-$(hostname)}"
 read -r -p "  Client hostname [$DEFAULT_HOSTNAME]: " CLIENT_HOSTNAME
 CLIENT_HOSTNAME="${CLIENT_HOSTNAME:-$DEFAULT_HOSTNAME}"
 
@@ -179,49 +183,81 @@ echo "Step 3/6: Configuring service monitoring..."
 MONITORS="[]"
 CEC_ENABLED="false"
 
-# Systemd services to check for
-declare -A SERVICE_MAP=(
-    ["apache2"]="Apache web server"
-    ["church-calendar"]="Church calendar display"
-    ["videokiosk2"]="Video kiosk v2"
-)
+if [[ -f "$BUNDLED_CONFIG" ]]; then
+    echo "  Found bundled config.json — using it as template."
 
-for svc in apache2 church-calendar videokiosk2; do
-    DESC="${SERVICE_MAP[$svc]}"
-    if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
-        if ask_yn "Monitor ${svc} (${DESC})?" "y"; then
-            MONITORS=$(echo "$MONITORS" | jq --arg n "$svc" '. + [{"name":$n,"type":"systemd"}]')
+    # Iterate over each monitor in the bundled config
+    while IFS= read -r entry; do
+        NAME=$(echo "$entry" | jq -r '.name')
+        TYPE=$(echo "$entry" | jq -r '.type')
+        MATCH=$(echo "$entry" | jq -r '.match // empty')
+
+        # Build description for the prompt
+        DESC="$NAME ($TYPE)"
+        [[ -n "$MATCH" ]] && DESC="$NAME ($TYPE, match: $MATCH)"
+
+        if ask_yn "Monitor ${DESC}?" "y"; then
+            MONITORS=$(echo "$MONITORS" | jq --argjson e "$entry" '. + [$e]')
         fi
+    done < <(jq -c '.monitors[]' "$BUNDLED_CONFIG" 2>/dev/null || true)
+
+    # CEC — use bundled default
+    BUNDLED_CEC=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
+    if [[ "$BUNDLED_CEC" == "true" ]]; then
+        CEC_DEFAULT="y"
+    else
+        CEC_DEFAULT="n"
     fi
-done
+    if ask_yn "Enable CEC TV status check (on-demand only)?" "$CEC_DEFAULT"; then
+        CEC_ENABLED="true"
+        usermod -aG video www-data 2>/dev/null || true
+    fi
+else
+    echo "  No bundled config.json — auto-detecting services."
 
-# Process checks
-declare -A PROC_MAP=(
-    ["vlc"]="VLC media player"
-    ["midori"]="Midori web browser"
-)
+    # Systemd services to check for
+    declare -A SERVICE_MAP=(
+        ["apache2"]="Apache web server"
+        ["church-calendar"]="Church calendar display"
+        ["videokiosk2"]="Video kiosk v2"
+    )
 
-for proc in vlc midori; do
-    DESC="${PROC_MAP[$proc]}"
-    if command -v "$proc" &>/dev/null; then
-        if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
-            read -r -p "  Match substring in ps -ef (leave empty for exact name match): " PROC_MATCH
-            if [[ -n "$PROC_MATCH" ]]; then
-                MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
-                    '. + [{"name":$n,"type":"process","match":$m}]')
-            else
-                MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+    for svc in apache2 church-calendar videokiosk2; do
+        DESC="${SERVICE_MAP[$svc]}"
+        if systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
+            if ask_yn "Monitor ${svc} (${DESC})?" "y"; then
+                MONITORS=$(echo "$MONITORS" | jq --arg n "$svc" '. + [{"name":$n,"type":"systemd"}]')
             fi
         fi
-    fi
-done
+    done
 
-# CEC
-if command -v cec-client &>/dev/null; then
-    if ask_yn "Enable CEC TV status check (on-demand only)?" "y"; then
-        CEC_ENABLED="true"
-        # Add www-data to video group for CEC access
-        usermod -aG video www-data 2>/dev/null || true
+    # Process checks
+    declare -A PROC_MAP=(
+        ["vlc"]="VLC media player"
+        ["midori"]="Midori web browser"
+    )
+
+    for proc in vlc midori; do
+        DESC="${PROC_MAP[$proc]}"
+        if command -v "$proc" &>/dev/null; then
+            if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
+                read -r -p "  Match regex in ps -ef (leave empty for exact name match): " PROC_MATCH
+                if [[ -n "$PROC_MATCH" ]]; then
+                    MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
+                        '. + [{"name":$n,"type":"process","match":$m}]')
+                else
+                    MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
+                fi
+            fi
+        fi
+    done
+
+    # CEC
+    if command -v cec-client &>/dev/null; then
+        if ask_yn "Enable CEC TV status check (on-demand only)?" "y"; then
+            CEC_ENABLED="true"
+            usermod -aG video www-data 2>/dev/null || true
+        fi
     fi
 fi
 
