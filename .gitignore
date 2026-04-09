@@ -13,3 +13,5 @@ server/config.json
 
 # Enrollment tokens
 tokens/
+install-server.sh
+install-client.sh
