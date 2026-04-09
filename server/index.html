@@ -89,10 +89,24 @@ function statusClass(s) {
 
 function hostHealth(data) {
     if (data.error) return 'err';
+    var svcs = data.services || [];
     var bad = false;
-    (data.services || []).forEach(function(svc) {
+
+    // Check for mutual-exclusion pair: vlc and midori
+    var vlcSvc = null, midoriSvc = null;
+    svcs.forEach(function(svc) {
+        if (svc.name === 'vlc') vlcSvc = svc;
+        if (svc.name === 'midori') midoriSvc = svc;
         if (svc.status === 'inactive' || svc.status === 'not running') bad = true;
     });
+
+    if (vlcSvc && midoriSvc) {
+        var vlcUp = vlcSvc.status && vlcSvc.status.indexOf('running') === 0;
+        var midoriUp = midoriSvc.status && midoriSvc.status.indexOf('running') === 0;
+        // Both running = caution; neither running = already caught by bad flag
+        if (vlcUp && midoriUp) return 'warn';
+    }
+
     return bad ? 'warn' : 'ok';
 }
 
