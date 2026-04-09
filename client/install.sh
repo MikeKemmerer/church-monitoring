@@ -20,6 +20,7 @@ Sets up a church-monitoring agent on this host.
 Options:
     --help          Show this help message
     --renew         Renew the agent certificate (re-enrolls with server)
+    --update        Update config and CGI scripts only (keeps certs/enrollment)
 
 The client installer will:
     1. Install required packages (apache2, openssl, jq)
@@ -52,11 +53,13 @@ EOF
 
 # ── Parse arguments ───────────────────────────────────────────────────
 RENEW=0
+UPDATE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help) show_help ;;
         --renew) RENEW=1; shift ;;
+        --update) UPDATE=1; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -104,6 +107,21 @@ ask_yn() {
 
 echo "=== Church Monitoring Client Installer ==="
 echo ""
+
+if [[ $UPDATE -eq 1 ]]; then
+    # ── Update mode: skip packages, enrollment, vhost, cron ──────────
+    if [[ ! -d "$CONF_DIR" ]]; then
+        echo "Error: no existing installation found at $CONF_DIR." >&2
+        echo "Run a full install first (without --update)." >&2
+        exit 1
+    fi
+    echo "Update mode — keeping certificates and enrollment."
+    echo ""
+
+    BUNDLED_CONFIG="$SCRIPT_DIR/config.json"
+    CLIENT_HOSTNAME=$(jq -r '.hostname // empty' "$CONF_DIR/client-config.json" 2>/dev/null)
+    CLIENT_HOSTNAME="${CLIENT_HOSTNAME:-$(hostname)}"
+else
 
 # ── Step 1: Packages ─────────────────────────────────────────────────
 echo "Step 1/6: Installing packages..."
@@ -175,6 +193,8 @@ echo "$RESPONSE_BODY" | jq -r '.ca_cert' > "$SSL_DIR/ca.crt"
 rm -f "$SSL_DIR/agent.csr"
 chmod 644 "$SSL_DIR/agent.crt" "$SSL_DIR/ca.crt"
 echo "  Enrollment successful — certificates installed."
+
+fi  # end of full-install vs update-mode
 
 # ── Step 3: Service detection ────────────────────────────────────────
 echo ""
@@ -261,8 +281,8 @@ else
     fi
 fi
 
-# Write client config (skip if --renew and config exists)
-if [[ $RENEW -eq 0 ]] || [[ ! -f "$CONF_DIR/client-config.json" ]]; then
+# Write client config (skip if --renew and config exists, always write in --update)
+if [[ $UPDATE -eq 1 ]] || [[ $RENEW -eq 0 ]] || [[ ! -f "$CONF_DIR/client-config.json" ]]; then
     jq -n \
         --arg hostname "$CLIENT_HOSTNAME" \
         --argjson monitors "$MONITORS" \
@@ -288,6 +308,23 @@ cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
 
 echo "  CGI scripts and collector installed."
+
+if [[ $UPDATE -eq 1 ]]; then
+    # Reload Apache to pick up any new CGI scripts
+    systemctl reload apache2 2>/dev/null || true
+
+    echo ""
+    echo "=============================================="
+    echo "  Client update complete!"
+    echo "=============================================="
+    echo ""
+    echo "Certificates and enrollment unchanged."
+    echo "Updated: config, CGI scripts, collector."
+    echo ""
+    echo "Monitored services:"
+    echo "$MONITORS" | jq -r '.[] | "  - " + .name + " (" + .type + ")"'
+    exit 0
+fi
 
 # ── Step 5: Apache vhost ─────────────────────────────────────────────
 echo ""
