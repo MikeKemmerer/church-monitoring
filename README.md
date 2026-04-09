@@ -4,17 +4,14 @@ Lightweight monitoring dashboard for church AV infrastructure. A central server 
 
 ## Architecture
 
-```
-┌─────────────────────┐         ┌─────────────────────┐
-│   Monitoring Server │  mTLS   │   Agent (client)    │
-│   (dashboard)       │◄───────►│   host-a    │
-│   port 8080         │         │   port 8033         │
-└─────────────────────┘         └─────────────────────┘
-                       \        ┌─────────────────────┐
-                        mTLS   │   Agent (client)    │
-                        ───────►│   host-b     │
-                                │   port 8033         │
-                                └─────────────────────┘
+```mermaid
+graph LR
+    Server["Monitoring Server\n(dashboard :8080)"]
+    A1["Agent\nhost-a :8033"]
+    A2["Agent\nhost-b :8033"]
+
+    Server -- "mTLS" --> A1
+    Server -- "mTLS" --> A2
 ```
 
 - **Pull model** — the server fetches status from agents on demand
