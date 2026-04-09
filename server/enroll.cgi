@@ -95,10 +95,12 @@ CA_PEM=$(cat "$CA_DIR/ca.crt")
 if [ -f "$CONFIG" ]; then
     EXISTS=$(jq --arg h "$CLIENT_HOST" '.clients[] | select(.name == $h)' "$CONFIG" 2>/dev/null)
     if [ -z "$EXISTS" ]; then
-        jq --arg name "$CLIENT_HOST" --arg host "$CLIENT_HOST" --argjson port "$CLIENT_PORT" \
+        UPDATED=$(jq --arg name "$CLIENT_HOST" --arg host "$CLIENT_HOST" --argjson port "$CLIENT_PORT" \
             '.clients += [{"name":$name,"host":$host,"port":$port}]' \
-            "$CONFIG" > "${CONFIG}.tmp"
-        mv "${CONFIG}.tmp" "$CONFIG"
+            "$CONFIG" 2>/dev/null)
+        if [ -n "$UPDATED" ]; then
+            printf '%s\n' "$UPDATED" > "$CONFIG"
+        fi
     fi
 fi
 

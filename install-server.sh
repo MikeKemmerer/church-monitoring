@@ -143,8 +143,8 @@ echo "Step 2/8: Creating directories..."
 mkdir -p "$CA_DIR" "$SSL_DIR" "$TOKEN_DIR" "$WEB_ROOT" "$CGI_DIR"
 mkdir -p "$CONF_DIR/signed-certs"
 chown root:www-data "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR" "$CONF_DIR/signed-certs"
-chmod 750 "$CA_DIR" "$TOKEN_DIR" "$SSL_DIR"
-chmod 770 "$CONF_DIR/signed-certs"
+chmod 750 "$CA_DIR" "$SSL_DIR"
+chmod 770 "$TOKEN_DIR" "$CONF_DIR/signed-certs"
 
 # ── Create CA ─────────────────────────────────────────────────────────
 echo "Step 3/8: Creating Certificate Authority..."
