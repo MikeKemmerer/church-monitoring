@@ -246,8 +246,9 @@ chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh /usr/local
 # Initialize server config if not present
 if [[ ! -f "$CONF_DIR/server-config.json" ]]; then
     echo '{"port":'"$PORT"',"clients":[]}' | jq '.' > "$CONF_DIR/server-config.json"
-    chmod 644 "$CONF_DIR/server-config.json"
 fi
+chown root:www-data "$CONF_DIR/server-config.json"
+chmod 660 "$CONF_DIR/server-config.json"
 
 # ── Apache vhost ──────────────────────────────────────────────────────
 echo "Step 7/7: Configuring Apache..."
@@ -262,7 +263,6 @@ cat > "$VHOST" <<VHEOF
     <Directory ${WEB_ROOT}>
         Options -Indexes
         AllowOverride None
-        Require all granted
 
         AuthType Basic
         AuthName "Church Monitoring"
@@ -275,7 +275,6 @@ cat > "$VHOST" <<VHEOF
     <Directory ${CGI_DIR}>
         Options +ExecCGI
         AddHandler cgi-script .cgi
-        Require all granted
 
         AuthType Basic
         AuthName "Church Monitoring"
