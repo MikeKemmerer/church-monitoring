@@ -372,6 +372,15 @@ cp "$SCRIPT_DIR/screenshot.cgi" "$CGI_DIR/screenshot.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
+# Install helper scripts
+cp "$SCRIPT_DIR/church-screenshot.sh" /usr/local/bin/church-screenshot.sh
+chmod 755 /usr/local/bin/church-screenshot.sh
+
+# Allow www-data to run screenshot helper as the display user
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-screenshot.sh" \
+    > /etc/sudoers.d/church-monitoring-screenshot
+chmod 440 /etc/sudoers.d/church-monitoring-screenshot
+
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect

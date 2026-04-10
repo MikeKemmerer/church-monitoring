@@ -1,36 +1,39 @@
 #!/usr/bin/env bash
 # screenshot.cgi — Captures the X11 display and serves a low-res JPEG.
-# Requires scrot (preferred) or import (ImageMagick) and DISPLAY=:0.
+# Uses sudo to run church-screenshot.sh as the X display owner.
 
-TMPFILE="/tmp/church-monitoring-screenshot.jpg"
+TMPFILE="/tmp/church-monitoring-screenshot-$$.jpg"
+HELPER="/usr/local/bin/church-screenshot.sh"
 WIDTH=480
 QUALITY=40
 
-# Capture the display
-export DISPLAY=:0
-export XAUTHORITY=/home/pi/.Xauthority
-
-if command -v scrot &>/dev/null; then
-    scrot -q "$QUALITY" -o "$TMPFILE" 2>/dev/null
-    CAPTURED=$?
-elif command -v import &>/dev/null; then
-    import -window root -resize "${WIDTH}x" -quality "$QUALITY" "$TMPFILE" 2>/dev/null
-    CAPTURED=$?
-else
+json_error() {
     echo "Content-Type: application/json"
     echo ""
-    echo '{"error":"no screenshot tool available (install scrot)"}'
+    echo "{\"error\":\"$1\"}"
     exit 0
+}
+
+# Detect the user who owns the X display
+DISP_USER=$(stat -c '%U' /tmp/.X11-unix/X0 2>/dev/null)
+if [ -z "$DISP_USER" ]; then
+    json_error "no X display found"
 fi
 
-if [ $CAPTURED -ne 0 ] || [ ! -f "$TMPFILE" ]; then
-    echo "Content-Type: application/json"
-    echo ""
-    echo '{"error":"screenshot capture failed"}'
-    exit 0
+if [ ! -x "$HELPER" ]; then
+    json_error "screenshot helper not installed"
 fi
 
-# Downscale if scrot was used (it captures full-res)
+# Capture via sudo as the display owner
+sudo -u "$DISP_USER" "$HELPER" "$QUALITY" "$TMPFILE" 2>/dev/null
+CAPTURED=$?
+
+if [ $CAPTURED -ne 0 ] || [ ! -s "$TMPFILE" ]; then
+    rm -f "$TMPFILE" 2>/dev/null
+    json_error "screenshot capture failed"
+fi
+
+# Downscale with convert if available
 if command -v convert &>/dev/null; then
     convert "$TMPFILE" -resize "${WIDTH}x" -quality "$QUALITY" "$TMPFILE" 2>/dev/null || true
 fi
@@ -40,3 +43,4 @@ echo "Content-Type: image/jpeg"
 echo "Cache-Control: no-cache"
 echo ""
 cat "$TMPFILE"
+rm -f "$TMPFILE" 2>/dev/null

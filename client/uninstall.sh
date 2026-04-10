@@ -75,9 +75,11 @@ if [[ -d "$CGI_DIR" ]]; then
     rm -rf "$CGI_DIR"
 fi
 
-# Remove collector script
+# Remove collector and helper scripts
 echo "Removing collector..."
 rm -f /usr/local/bin/church-monitoring-collect
+rm -f /usr/local/bin/church-screenshot.sh
+rm -f /etc/sudoers.d/church-monitoring-screenshot
 
 # Remove lock file
 rm -f "$LOCK"
