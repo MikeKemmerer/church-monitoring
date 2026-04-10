@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # device-status.cgi — Checks reachability of devices defined in client config.
 # Each client object may have a "check" field:
-#   "ping"       → ICMP ping
+#   "tcp:PORT"   → TCP port probe (e.g. tcp:22 for SSH)
 #   "http:PORT"  → HTTP probe on given port
 #   (missing)    → skip
 # Results are cached for 60 seconds.
@@ -43,10 +43,10 @@ while IFS= read -r client; do
     STATUS="offline"
 
     case "$CHECK" in
-        ping)
-            # TCP port probe — ICMP ping requires cap_net_raw which www-data lacks
-            if [ -n "$CLIENT_PORT" ]; then
-                if timeout 2 bash -c "echo >/dev/tcp/$HOST/$CLIENT_PORT" 2>/dev/null; then
+        tcp:*)
+            PROBE_PORT="${CHECK#tcp:}"
+            if [[ "$PROBE_PORT" =~ ^[0-9]+$ ]]; then
+                if timeout 2 bash -c "echo >/dev/tcp/$HOST/$PROBE_PORT" 2>/dev/null; then
                     STATUS="online"
                 fi
             fi
