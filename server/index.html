@@ -272,7 +272,7 @@ function fetchAll() {
             // Derive host status for monitoring clients from their response
             data.forEach(function(d) {
                 var n = d.client_name || d.hostname;
-                if (n && !deviceStatus[n]) {
+                if (n) {
                     deviceStatus[n] = (d.error === 'unreachable') ? 'offline' : 'online';
                 }
             });
@@ -280,29 +280,28 @@ function fetchAll() {
             data.forEach(function(d) { html += renderCard(d); });
             cards.innerHTML = html;
             document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+            // Fetch device checks AFTER status renders (avoids blocking Apache workers)
+            fetchDeviceStatus();
         })
         .catch(function(err) {
             cards.innerHTML = '<div class="loading-msg" style="color:#c0392b;">Failed to fetch status: ' + escapeHtml(String(err)) + '</div>';
         });
-    // Fetch device checks separately (non-client devices like encoder)
+}
+
+function fetchDeviceStatus() {
     fetch('/cgi-bin/device-status.cgi')
         .then(function(r) { return r.json(); })
         .then(function(ds) {
-            var changed = false;
             for (var k in ds) {
-                if (ds[k] !== deviceStatus[k]) { changed = true; }
                 deviceStatus[k] = ds[k];
             }
-            if (changed) {
-                // Re-render cards with updated host dots
-                var cardEls = document.querySelectorAll('.host-dot');
-                cardEls.forEach(function(el) {
-                    var name = el.getAttribute('data-host');
-                    if (name && deviceStatus[name]) {
-                        el.className = 'host-dot ' + deviceStatus[name];
-                    }
-                });
-            }
+            // Update host dots in-place
+            document.querySelectorAll('.host-dot').forEach(function(el) {
+                var name = el.getAttribute('data-host');
+                if (name && deviceStatus[name]) {
+                    el.className = 'host-dot ' + deviceStatus[name];
+                }
+            });
         })
         .catch(function() { /* device-status is optional */ });
 }
