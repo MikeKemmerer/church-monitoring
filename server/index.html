@@ -35,8 +35,8 @@ button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
 .stale{font-size:11px;color:#7f8c8d}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
-.screenshot-area{margin-top:6px;display:none}
-.screenshot-area img{width:100%;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
+.screenshot-area{display:none;float:right;margin:0 0 6px 10px;width:100px}
+.screenshot-area img{width:100px;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
 .screenshot-area img:hover{border-color:#7eb8da}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -137,6 +137,9 @@ function renderCard(data) {
     var html = '<div class="card"><div class="card-head"><span class="card-name">' +
         escapeHtml(name) + '</span><span class="dot ' + health + '"></span></div>';
 
+    // Screenshot thumbnail (floated right inside card)
+    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+
     // Metrics
     html += '<div class="metrics">';
     html += '<span>Uptime<span class="val">' + formatUptime(data.uptime_seconds) + '</span></span>';
@@ -178,9 +181,6 @@ function renderCard(data) {
     }
 
     html += '</div>';
-
-    // Screenshot area
-    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
 
     html += '</div>';
     return html;
@@ -296,7 +296,7 @@ function captureScreen(name) {
     var el = document.getElementById('screen-' + name);
     if (!el) return;
     el.style.display = 'block';
-    el.innerHTML = '<span class="spinner"></span> Capturing screenshot&hellip;';
+    el.innerHTML = '<span class="spinner"></span>';
 
     fetch('/cgi-bin/fetch-screenshot.cgi?host=' + encodeURIComponent(name))
         .then(function(r) {
@@ -308,11 +308,11 @@ function captureScreen(name) {
                 });
             }
             return r.json().then(function(data) {
-                el.innerHTML = '&#9888; ' + escapeHtml(data.error || 'Unknown error');
+                el.innerHTML = '<small>&#9888; ' + escapeHtml(data.error || 'Error') + '</small>';
             });
         })
         .catch(function(err) {
-            el.innerHTML = '&#9888; Screenshot failed: ' + escapeHtml(String(err));
+            el.innerHTML = '<small>&#9888; Failed</small>';
         });
 }
 
