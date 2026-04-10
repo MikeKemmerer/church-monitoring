@@ -21,6 +21,12 @@ while IFS= read -r client; do
     NAME=$(echo "$client" | jq -r '.name')
     HOST=$(echo "$client" | jq -r '.host')
     PORT=$(echo "$client" | jq -r '.port')
+    AGENT=$(echo "$client" | jq -r '.agent // true')
+
+    # Skip device-only entries (no monitoring agent)
+    if [ "$AGENT" = "false" ]; then
+        continue
+    fi
 
     DATA=$(curl -s --connect-timeout 5 --max-time 15 \
         --cert "$CERT" --key "$KEY" --cacert "$CA" \

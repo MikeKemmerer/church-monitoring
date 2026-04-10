@@ -23,6 +23,7 @@ h1 a:hover{text-decoration:underline}
 .host-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:4px}
 .host-dot.online{background:#27ae60}
 .host-dot.offline{background:#c0392b}
+.host-dot.untracked{background:#7f8c8d}
 .host-label{font-size:10px;color:#7f8c8d;margin-left:2px}
 .card-body{display:flex;flex-direction:column;gap:8px}
 .card-stats{min-width:0}
@@ -150,8 +151,8 @@ function renderCard(data) {
     var health = hostHealth(data);
 
     var hostDot = '';
-    if (deviceStatus[name]) {
-        var hs = deviceStatus[name];
+    var hs = deviceStatus[name];
+    if (hs) {
         hostDot = '<span class="host-dot ' + hs + '" data-host="' + escapeAttr(name) + '"></span><span class="host-label">Host</span>';
     }
 
@@ -292,16 +293,29 @@ function fetchDeviceStatus() {
     fetch('/cgi-bin/device-status.cgi')
         .then(function(r) { return r.json(); })
         .then(function(ds) {
+            if (ds.error) return;
+            var cards = document.getElementById('cards');
             for (var k in ds) {
                 deviceStatus[k] = ds[k];
             }
-            // Update host dots in-place
+            // Update existing host dots in-place
             document.querySelectorAll('.host-dot').forEach(function(el) {
                 var name = el.getAttribute('data-host');
                 if (name && deviceStatus[name]) {
                     el.className = 'host-dot ' + deviceStatus[name];
                 }
             });
+            // Add cards for device-only entries (no agent)
+            for (var k in ds) {
+                if (!document.querySelector('.host-dot[data-host=\"' + k + '\"]')) {
+                    var hs = ds[k];
+                    var card = '<div class="card"><div class="card-head"><span class="card-name">' +
+                        escapeHtml(k) + '</span><span class="host-dot ' + hs + '" data-host="' +
+                        escapeAttr(k) + '"></span></div>' +
+                        '<div style="font-size:12px;color:#7f8c8d">Device only — no monitoring agent</div></div>';
+                    cards.insertAdjacentHTML('beforeend', card);
+                }
+            }
         })
         .catch(function() { /* device-status is optional */ });
 }

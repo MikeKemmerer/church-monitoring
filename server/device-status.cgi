@@ -39,6 +39,7 @@ while IFS= read -r client; do
     CLIENT_PORT=$(echo "$client" | jq -r '.port // empty')
 
     [ -z "$CHECK" ] && continue
+    [ "$CHECK" = "none" ] && continue
 
     STATUS="offline"
 
