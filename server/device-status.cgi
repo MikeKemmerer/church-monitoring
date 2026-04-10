@@ -36,6 +36,7 @@ while IFS= read -r client; do
     NAME=$(echo "$client" | jq -r '.name')
     HOST=$(echo "$client" | jq -r '.host')
     CHECK=$(echo "$client" | jq -r '.check // empty')
+    CLIENT_PORT=$(echo "$client" | jq -r '.port // empty')
 
     [ -z "$CHECK" ] && continue
 
@@ -43,8 +44,11 @@ while IFS= read -r client; do
 
     case "$CHECK" in
         ping)
-            if ping -c 1 -W 2 "$HOST" &>/dev/null; then
-                STATUS="online"
+            # TCP port probe — ICMP ping requires cap_net_raw which www-data lacks
+            if [ -n "$CLIENT_PORT" ]; then
+                if timeout 2 bash -c "echo >/dev/tcp/$HOST/$CLIENT_PORT" 2>/dev/null; then
+                    STATUS="online"
+                fi
             fi
             ;;
         http:*)
