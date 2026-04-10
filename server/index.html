@@ -10,8 +10,8 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0
 h1{font-size:20px;margin-bottom:12px;color:#fff;display:flex;align-items:center;gap:8px}
 h1 a{font-size:13px;color:#7eb8da;text-decoration:none;margin-left:auto}
 h1 a:hover{text-decoration:underline}
-.cards{display:flex;flex-wrap:wrap;gap:14px}
-.card{background:#16213e;border-radius:8px;padding:14px;min-width:320px;flex:1;border:1px solid #0f3460}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px}
+.card{background:#16213e;border-radius:8px;padding:14px;border:1px solid #0f3460}
 .card.error{border-color:#c0392b}
 .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .card-name{font-size:16px;font-weight:600}
@@ -20,31 +20,45 @@ h1 a:hover{text-decoration:underline}
 .dot.warn{background:#f39c12}
 .dot.err{background:#c0392b}
 .dot.unk{background:#7f8c8d}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-bottom:10px;font-size:12px;color:#a0a0c0}
+.card-body{display:flex;gap:12px}
+.card-stats{flex:1;min-width:0}
+.screenshot-area{display:none;flex-shrink:0;width:140px;align-self:flex-start}
+.screenshot-area img{width:100%;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
+.screenshot-area img:hover{border-color:#7eb8da}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-bottom:10px;font-size:12px;color:#a0a0c0}
 .metrics span{background:#0f3460;border-radius:4px;padding:4px 6px;text-align:center}
 .metrics .val{color:#fff;font-weight:600;display:block;font-size:14px}
-table{width:100%;font-size:13px;border-collapse:collapse;margin-bottom:8px}
-th{text-align:left;color:#7eb8da;padding:3px 6px;border-bottom:1px solid #0f3460;font-weight:500}
-td{padding:3px 6px}
+.svc-list{margin-bottom:8px;font-size:13px}
+.svc-row{display:flex;align-items:center;padding:3px 0;border-bottom:1px solid #0f346040}
+.svc-row:last-child{border-bottom:none}
+.svc-name{flex:1;min-width:0}
+.svc-type{font-size:10px;color:#7f8c8d;background:#0f3460;border-radius:3px;padding:1px 5px;margin-left:6px;flex-shrink:0}
+.svc-status{min-width:80px;text-align:right;margin:0 8px}
 .s-active,.s-running{color:#27ae60}
 .s-inactive,.s-not{color:#c0392b}
 .s-unknown{color:#7f8c8d}
-.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.btn-group{display:flex;gap:3px;background:#0a1a35;border-radius:4px;padding:2px}
 button{background:#0f3460;color:#e0e0e0;border:1px solid #1a4a7a;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px}
 button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
 .btn-restart{background:#8b4513;border-color:#a0522d;font-size:11px;padding:2px 6px}
 .btn-restart:hover{background:#a0522d}
-.stale{font-size:11px;color:#7f8c8d}
+.stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
-.screenshot-area{display:none;float:right;margin:0 0 6px 10px;width:100px}
-.screenshot-area img{width:100px;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
-.screenshot-area img:hover{border-color:#7eb8da}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-msg{text-align:center;padding:40px;color:#7f8c8d;font-size:14px}
 .refresh-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .auto-label{font-size:11px;color:#7f8c8d}
+@media(max-width:500px){
+.cards{grid-template-columns:1fr}
+.card-body{flex-direction:column}
+.screenshot-area{width:100%;order:-1}
+.metrics{grid-template-columns:repeat(2,1fr)}
+.actions{gap:4px}
+button{padding:4px 8px;font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -139,8 +153,10 @@ function renderCard(data) {
     var html = '<div class="card"><div class="card-head"><span class="card-name">' +
         escapeHtml(name) + '</span><span class="dot ' + health + '"></span></div>';
 
-    // Screenshot thumbnail (floated right inside card)
-    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+    html += '<div class="card-body">';
+
+    // Stats column
+    html += '<div class="card-stats">';
 
     // Metrics
     html += '<div class="metrics">';
@@ -151,32 +167,35 @@ function renderCard(data) {
     if (data.temperature_c !== null && data.temperature_c !== undefined) html += '<span>Temp<span class="val">' + data.temperature_c + '&deg;C</span></span>';
     html += '</div>';
 
-    // Services table
+    // Services list (flex rows instead of table)
     if (data.services && data.services.length) {
-        html += '<table><tr><th>Service</th><th>Type</th><th>Status</th><th></th></tr>';
+        html += '<div class="svc-list">';
         data.services.forEach(function(svc) {
-            html += '<tr><td>' + escapeHtml(svc.name) + '</td><td>' + svc.type +
-                '</td><td class="' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</td><td>';
+            html += '<div class="svc-row"><span class="svc-name">' + escapeHtml(svc.name) +
+                '<span class="svc-type">' + svc.type + '</span></span>' +
+                '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
             if (svc.type === 'systemd') {
                 html += '<button class="btn-restart" onclick="restartService(\'' + escapeAttr(name) + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb;</button>';
             }
-            html += '</td></tr>';
+            html += '</div>';
         });
-        html += '</table>';
+        html += '</div>';
     }
 
     // Actions
     html += '<div class="actions">';
     html += '<button onclick="refreshOne(\'' + escapeAttr(name) + '\')">&#x21bb; Refresh</button>';
     if (data.cec_enabled) {
+        html += '<span class="btn-group">';
         html += '<button onclick="checkCec(\'' + escapeAttr(name) + '\')">&#128250; Check TV</button>';
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'on\')">&#9654; TV On</button>';
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'standby\')">&#9724; Standby</button>';
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'active\')">&#127909; Set Active</button>';
+        html += '</span>';
     }
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
-    html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
     html += '</div>';
+    html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
 
     // CEC result area
     if (data.cec_enabled) {
@@ -186,9 +205,13 @@ function renderCard(data) {
         html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
     }
 
-    html += '</div>';
+    html += '</div>'; // card-stats
 
-    html += '</div>';
+    // Screenshot area (right side of card-body)
+    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+
+    html += '</div>'; // card-body
+    html += '</div>'; // card
     return html;
 }
 
