@@ -23,7 +23,7 @@ while IFS= read -r client; do
     PORT=$(echo "$client" | jq -r '.port')
 
     DATA=$(curl -s --connect-timeout 5 --max-time 15 \
-        --cert "$CERT" --key "$KEY" --cacert "$CA" \
+        --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
         "https://${HOST}:${PORT}/cgi-bin/status.cgi?refresh=1" 2>/dev/null) || true
 
     if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then

@@ -42,7 +42,7 @@ PORT=$(echo "$CLIENT" | jq -r '.port')
 TMPFILE="/tmp/church-monitoring-proxy-screenshot-$$.jpg"
 
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 15 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
     -o "$TMPFILE" -w "%{http_code}" \
     "https://${HOST}:${PORT}/cgi-bin/screenshot.cgi" 2>/dev/null) || true
 

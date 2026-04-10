@@ -41,7 +41,7 @@ HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
 DATA=$(curl -s --connect-timeout 5 --max-time 15 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
     "https://${HOST}:${PORT}/cgi-bin/cec-check.cgi" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
