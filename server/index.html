@@ -20,9 +20,9 @@ h1 a:hover{text-decoration:underline}
 .dot.warn{background:#f39c12}
 .dot.err{background:#c0392b}
 .dot.unk{background:#7f8c8d}
-.card-body{display:flex;gap:12px}
-.card-stats{flex:1;min-width:0}
-.screenshot-area{display:none;flex-shrink:0;width:140px;align-self:flex-start}
+.card-body{display:flex;flex-direction:column;gap:8px}
+.card-stats{min-width:0}
+.screenshot-area{display:none;width:160px}
 .screenshot-area img{width:100%;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
 .screenshot-area img:hover{border-color:#7eb8da}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin-bottom:10px;font-size:12px;color:#a0a0c0}
@@ -54,8 +54,7 @@ button:disabled{opacity:0.5;cursor:default}
 .auto-label{font-size:11px;color:#7f8c8d}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
-.card-body{flex-direction:column}
-.screenshot-area{width:100%;order:-1}
+.screenshot-area{width:100%}
 .metrics{grid-template-columns:repeat(2,1fr)}
 .actions{gap:4px}
 button{padding:4px 8px;font-size:11px}
@@ -156,7 +155,10 @@ function renderCard(data) {
 
     html += '<div class="card-body">';
 
-    // Stats column
+    // Screenshot area (above stats, shown when captured)
+    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+
+    // Stats
     html += '<div class="card-stats">';
 
     // Metrics
@@ -207,9 +209,6 @@ function renderCard(data) {
     }
 
     html += '</div>'; // card-stats
-
-    // Screenshot area (right side of card-body)
-    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
 
     html += '</div>'; // card-body
     html += '</div>'; // card
