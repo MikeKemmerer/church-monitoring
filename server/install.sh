@@ -167,6 +167,7 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
     cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
     cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
+    cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
 
@@ -363,6 +364,7 @@ cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
 cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
 cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
+cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 

@@ -369,6 +369,7 @@ cp "$SCRIPT_DIR/status.cgi" "$CGI_DIR/status.cgi"
 cp "$SCRIPT_DIR/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
 cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 cp "$SCRIPT_DIR/screenshot.cgi" "$CGI_DIR/screenshot.cgi"
+cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
@@ -380,6 +381,11 @@ chmod 755 /usr/local/bin/church-screenshot.sh
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-screenshot.sh" \
     > /etc/sudoers.d/church-monitoring-screenshot
 chmod 440 /etc/sudoers.d/church-monitoring-screenshot
+
+# Allow www-data to restart systemd services
+echo "www-data ALL=(root) NOPASSWD: /bin/systemctl restart *" \
+    > /etc/sudoers.d/church-monitoring-restart
+chmod 440 /etc/sudoers.d/church-monitoring-restart
 
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect

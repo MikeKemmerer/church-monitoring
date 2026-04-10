@@ -33,6 +33,8 @@ td{padding:3px 6px}
 button{background:#0f3460;color:#e0e0e0;border:1px solid #1a4a7a;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px}
 button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
+.btn-restart{background:#8b4513;border-color:#a0522d;font-size:11px;padding:2px 6px}
+.btn-restart:hover{background:#a0522d}
 .stale{font-size:11px;color:#7f8c8d}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .screenshot-area{display:none;float:right;margin:0 0 6px 10px;width:100px}
@@ -151,10 +153,14 @@ function renderCard(data) {
 
     // Services table
     if (data.services && data.services.length) {
-        html += '<table><tr><th>Service</th><th>Type</th><th>Status</th></tr>';
+        html += '<table><tr><th>Service</th><th>Type</th><th>Status</th><th></th></tr>';
         data.services.forEach(function(svc) {
             html += '<tr><td>' + escapeHtml(svc.name) + '</td><td>' + svc.type +
-                '</td><td class="' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</td></tr>';
+                '</td><td class="' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</td><td>';
+            if (svc.type === 'systemd') {
+                html += '<button class="btn-restart" onclick="restartService(\'' + escapeAttr(name) + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb;</button>';
+            }
+            html += '</td></tr>';
         });
         html += '</table>';
     }
@@ -313,6 +319,23 @@ function captureScreen(name) {
         })
         .catch(function(err) {
             el.innerHTML = '<small>&#9888; Failed</small>';
+        });
+}
+
+function restartService(host, service) {
+    if (!confirm('Restart ' + service + ' on ' + host + '?')) return;
+    fetch('/cgi-bin/restart-service.cgi?host=' + encodeURIComponent(host) + '&service=' + encodeURIComponent(service))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert(data.service + ': ' + data.result + (data.state ? ' (' + data.state + ')' : ''));
+                refreshOne(host);
+            }
+        })
+        .catch(function(err) {
+            alert('Restart failed: ' + err);
         });
 }
 

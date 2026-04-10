@@ -80,6 +80,7 @@ echo "Removing collector..."
 rm -f /usr/local/bin/church-monitoring-collect
 rm -f /usr/local/bin/church-screenshot.sh
 rm -f /etc/sudoers.d/church-monitoring-screenshot
+rm -f /etc/sudoers.d/church-monitoring-restart
 
 # Remove lock file
 rm -f "$LOCK"
