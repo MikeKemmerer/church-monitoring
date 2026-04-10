@@ -20,11 +20,6 @@ h1 a:hover{text-decoration:underline}
 .dot.warn{background:#f39c12}
 .dot.err{background:#c0392b}
 .dot.unk{background:#7f8c8d}
-.host-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:4px}
-.host-dot.online{background:#27ae60}
-.host-dot.offline{background:#c0392b}
-.host-dot.untracked{background:#7f8c8d}
-.host-label{font-size:10px;color:#7f8c8d;margin-left:2px}
 .card-body{display:flex;flex-direction:column;gap:8px}
 .card-stats{min-width:0}
 .screenshot-area{display:none;width:160px}
@@ -84,7 +79,6 @@ button{padding:4px 8px;font-size:11px}
 var autoTimer = null;
 var cecCache = {};  // Persistent CEC results keyed by client name
 var cecTimerInterval = null;
-var deviceStatus = {};  // Device reachability keyed by client name
 
 function formatUptime(s) {
     if (!s && s !== 0) return '—';
@@ -150,20 +144,14 @@ function renderCard(data) {
     var name = data.client_name || data.hostname || 'unknown';
     var health = hostHealth(data);
 
-    var hostDot = '';
-    var hs = deviceStatus[name];
-    if (hs) {
-        hostDot = '<span class="host-dot ' + hs + '" data-host="' + escapeAttr(name) + '"></span><span class="host-label">Host</span>';
-    }
-
     if (data.error && !data.services) {
         return '<div class="card error"><div class="card-head"><span class="card-name">' +
-            name + '</span><span><span class="dot err"></span>' + hostDot + '</span></div>' +
+            name + '</span><span class="dot err"></span></div>' +
             '<div style="color:#c0392b;font-size:13px;">' + escapeHtml(data.error) + '</div></div>';
     }
 
     var html = '<div class="card"><div class="card-head"><span class="card-name">' +
-        escapeHtml(name) + '</span><span><span class="dot ' + health + '"></span>' + hostDot + '</span></div>';
+        escapeHtml(name) + '</span><span class="dot ' + health + '"></span></div>';
 
     html += '<div class="card-body">';
 
@@ -270,54 +258,14 @@ function fetchAll() {
                 cards.innerHTML = '<div class="loading-msg">No clients enrolled yet.<br><br>Run <code>sudo ./install-client.sh</code> on a host to add it.</div>';
                 return;
             }
-            // Derive host status for monitoring clients from their response
-            data.forEach(function(d) {
-                var n = d.client_name || d.hostname;
-                if (n) {
-                    deviceStatus[n] = (d.error === 'unreachable') ? 'offline' : 'online';
-                }
-            });
             var html = '';
             data.forEach(function(d) { html += renderCard(d); });
             cards.innerHTML = html;
             document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
-            // Fetch device checks AFTER status renders (avoids blocking Apache workers)
-            fetchDeviceStatus();
         })
         .catch(function(err) {
             cards.innerHTML = '<div class="loading-msg" style="color:#c0392b;">Failed to fetch status: ' + escapeHtml(String(err)) + '</div>';
         });
-}
-
-function fetchDeviceStatus() {
-    fetch('/cgi-bin/device-status.cgi')
-        .then(function(r) { return r.json(); })
-        .then(function(ds) {
-            if (ds.error) return;
-            var cards = document.getElementById('cards');
-            for (var k in ds) {
-                deviceStatus[k] = ds[k];
-            }
-            // Update existing host dots in-place
-            document.querySelectorAll('.host-dot').forEach(function(el) {
-                var name = el.getAttribute('data-host');
-                if (name && deviceStatus[name]) {
-                    el.className = 'host-dot ' + deviceStatus[name];
-                }
-            });
-            // Add cards for device-only entries (no agent)
-            for (var k in ds) {
-                if (!document.querySelector('.host-dot[data-host=\"' + k + '\"]')) {
-                    var hs = ds[k];
-                    var card = '<div class="card"><div class="card-head"><span class="card-name">' +
-                        escapeHtml(k) + '</span><span class="host-dot ' + hs + '" data-host="' +
-                        escapeAttr(k) + '"></span></div>' +
-                        '<div style="font-size:12px;color:#7f8c8d">Device only — no monitoring agent</div></div>';
-                    cards.insertAdjacentHTML('beforeend', card);
-                }
-            }
-        })
-        .catch(function() { /* device-status is optional */ });
 }
 
 function refreshOne(name) {

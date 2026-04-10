@@ -168,14 +168,8 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
     cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
     cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
-    cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
-
-    # Ensure cache dir exists for device-status checks
-    mkdir -p /var/cache/church-monitoring
-    chown root:www-data /var/cache/church-monitoring
-    chmod 775 /var/cache/church-monitoring
 
     cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh
     cp "$SCRIPT_DIR/sign-csr.sh" /usr/local/bin/sign-csr.sh
@@ -371,14 +365,8 @@ cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
 cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
 cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
-cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
-
-# Ensure cache dir exists for device-status checks
-mkdir -p /var/cache/church-monitoring
-chown root:www-data /var/cache/church-monitoring
-chmod 775 /var/cache/church-monitoring
 
 # Ensure server-config.json is writable by CGI (enrollment adds clients)
 if [[ -f "$CONFIG" ]]; then
