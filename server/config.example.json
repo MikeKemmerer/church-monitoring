@@ -1,7 +1,7 @@
 {
     "port": 8080,
     "clients": [
-        {"name": "host-a", "host": "localhost", "port": 8033},
-        {"name": "host-b", "host": "192.168.1.XXX", "port": 8033}
+        {"name": "host-a", "host": "localhost", "port": 8033, "check": "ping"},
+        {"name": "host-b", "host": "192.168.1.XXX", "port": 8033, "check": "http:8086"}
     ]
 }

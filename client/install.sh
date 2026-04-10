@@ -394,6 +394,22 @@ chmod 755 /usr/local/bin/church-monitoring-collect
 echo "  CGI scripts and collector installed."
 
 if [[ $UPDATE -eq 1 ]]; then
+    # Ensure cache dir exists with correct permissions
+    mkdir -p "$CACHE_DIR"
+    chown root:www-data "$CACHE_DIR"
+    chmod 775 "$CACHE_DIR"
+    chmod 664 "$CACHE_DIR"/*.json 2>/dev/null || true
+    chgrp www-data "$CACHE_DIR"/*.json 2>/dev/null || true
+
+    # Update cron interval to every minute
+    if crontab -l 2>/dev/null | grep -q 'church-monitoring-collect'; then
+        crontab -l 2>/dev/null | sed 's|^.*/usr/local/bin/church-monitoring-collect.*$|*/1 * * * * /usr/local/bin/church-monitoring-collect|' | crontab -
+        echo "  Cron job updated (every minute)."
+    else
+        (crontab -l 2>/dev/null || true; echo "*/1 * * * * /usr/local/bin/church-monitoring-collect") | crontab -
+        echo "  Cron job added (every minute)."
+    fi
+
     # Reload Apache to pick up any new CGI scripts
     systemctl reload apache2 2>/dev/null || true
 
@@ -474,12 +490,12 @@ echo "  Apache configured on port $CLIENT_PORT with mutual TLS."
 echo ""
 echo "Step 6/6: Setting up cron..."
 
-CRON_LINE="*/5 * * * * /usr/local/bin/church-monitoring-collect"
+CRON_LINE="*/1 * * * * /usr/local/bin/church-monitoring-collect"
 
 # Add cron entry if not already present
 if ! crontab -l 2>/dev/null | grep -q "church-monitoring-collect"; then
     (crontab -l 2>/dev/null || true; echo "$CRON_LINE") | crontab -
-    echo "  Cron job added (every 5 minutes)."
+    echo "  Cron job added (every minute)."
 else
     echo "  Cron job already exists — skipping."
 fi
