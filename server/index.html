@@ -35,6 +35,9 @@ button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
 .stale{font-size:11px;color:#7f8c8d}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
+.screenshot-area{margin-top:6px;display:none}
+.screenshot-area img{width:100%;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
+.screenshot-area img:hover{border-color:#7eb8da}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-msg{text-align:center;padding:40px;color:#7f8c8d;font-size:14px}
@@ -162,6 +165,7 @@ function renderCard(data) {
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'standby\')">&#9724; Standby</button>';
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'active\')">&#127909; Set Active</button>';
     }
+    html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
     html += '</div>';
 
@@ -172,6 +176,11 @@ function renderCard(data) {
         var cecContent = cached ? renderCecResult(cached) : '';
         html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
     }
+
+    html += '</div>';
+
+    // Screenshot area
+    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
 
     html += '</div>';
     return html;
@@ -280,6 +289,30 @@ function cecControl(name, action) {
         })
         .catch(function(err) {
             el.innerHTML = '&#9888; CEC control failed: ' + escapeHtml(String(err));
+        });
+}
+
+function captureScreen(name) {
+    var el = document.getElementById('screen-' + name);
+    if (!el) return;
+    el.style.display = 'block';
+    el.innerHTML = '<span class="spinner"></span> Capturing screenshot&hellip;';
+
+    fetch('/cgi-bin/fetch-screenshot.cgi?host=' + encodeURIComponent(name))
+        .then(function(r) {
+            var ct = r.headers.get('Content-Type') || '';
+            if (ct.indexOf('image/') === 0) {
+                return r.blob().then(function(blob) {
+                    var url = URL.createObjectURL(blob);
+                    el.innerHTML = '<img src="' + url + '" alt="Screenshot" onclick="window.open(this.src)">';
+                });
+            }
+            return r.json().then(function(data) {
+                el.innerHTML = '&#9888; ' + escapeHtml(data.error || 'Unknown error');
+            });
+        })
+        .catch(function(err) {
+            el.innerHTML = '&#9888; Screenshot failed: ' + escapeHtml(String(err));
         });
 }
 

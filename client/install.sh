@@ -72,7 +72,7 @@ fi
 
 # ── Install packages ─────────────────────────────────────────────────
 install_packages() {
-    local required=(apache2 openssl jq curl bc)
+    local required=(apache2 openssl jq curl bc scrot)
     local missing=()
 
     for pkg in "${required[@]}"; do
@@ -368,6 +368,7 @@ echo "Step 4/6: Installing CGI scripts..."
 cp "$SCRIPT_DIR/status.cgi" "$CGI_DIR/status.cgi"
 cp "$SCRIPT_DIR/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
 cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
+cp "$SCRIPT_DIR/screenshot.cgi" "$CGI_DIR/screenshot.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
