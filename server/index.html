@@ -25,7 +25,7 @@ h1 a:hover{text-decoration:underline}
 .screenshot-area{display:none;flex-shrink:0;width:140px;align-self:flex-start}
 .screenshot-area img{width:100%;border-radius:4px;border:1px solid #0f3460;cursor:pointer}
 .screenshot-area img:hover{border-color:#7eb8da}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-bottom:10px;font-size:12px;color:#a0a0c0}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin-bottom:10px;font-size:12px;color:#a0a0c0}
 .metrics span{background:#0f3460;border-radius:4px;padding:4px 6px;text-align:center}
 .metrics .val{color:#fff;font-weight:600;display:block;font-size:14px}
 .svc-list{margin-bottom:8px;font-size:13px}
@@ -38,7 +38,8 @@ h1 a:hover{text-decoration:underline}
 .s-inactive,.s-not{color:#c0392b}
 .s-unknown{color:#7f8c8d}
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px}
-.btn-group{display:flex;gap:3px;background:#0a1a35;border-radius:4px;padding:2px}
+.btn-group{display:inline-flex;gap:2px;background:#0a1a35;border-radius:4px;padding:2px;flex-shrink:0}
+.btn-group button{white-space:nowrap;padding:4px 6px}
 button{background:#0f3460;color:#e0e0e0;border:1px solid #1a4a7a;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px}
 button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
@@ -187,10 +188,10 @@ function renderCard(data) {
     html += '<button onclick="refreshOne(\'' + escapeAttr(name) + '\')">&#x21bb; Refresh</button>';
     if (data.cec_enabled) {
         html += '<span class="btn-group">';
-        html += '<button onclick="checkCec(\'' + escapeAttr(name) + '\')">&#128250; Check TV</button>';
-        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'on\')">&#9654; TV On</button>';
+        html += '<button onclick="checkCec(\'' + escapeAttr(name) + '\')">&#128250; Check</button>';
+        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'on\')">&#9654; On</button>';
         html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'standby\')">&#9724; Standby</button>';
-        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'active\')">&#127909; Set Active</button>';
+        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'active\')">&#127909; Active</button>';
         html += '</span>';
     }
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
