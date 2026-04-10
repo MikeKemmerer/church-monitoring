@@ -14,10 +14,23 @@ json_error() {
     exit 0
 }
 
-# Detect the user who owns the X display
-DISP_USER=$(stat -c '%U' /tmp/.X11-unix/X0 2>/dev/null)
+# Detect the user who owns the graphical session (seat0)
+DISP_USER=""
+if command -v loginctl &>/dev/null; then
+    DISP_USER=$(loginctl list-sessions --no-legend 2>/dev/null | while read -r sid rest; do
+        type=$(loginctl show-session "$sid" -p Type --value 2>/dev/null)
+        if [ "$type" = "x11" ] || [ "$type" = "wayland" ]; then
+            loginctl show-session "$sid" -p Name --value 2>/dev/null
+            break
+        fi
+    done)
+fi
+# Fallback: owner of the X socket
+if [ -z "$DISP_USER" ] && [ -e /tmp/.X11-unix/X0 ]; then
+    DISP_USER=$(stat -c '%U' /tmp/.X11-unix/X0 2>/dev/null)
+fi
 if [ -z "$DISP_USER" ]; then
-    json_error "no X display found"
+    json_error "no graphical session found"
 fi
 
 if [ ! -x "$HELPER" ]; then
