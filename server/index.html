@@ -149,16 +149,16 @@ function renderCard(data) {
     var name = data.client_name || data.hostname || 'unknown';
     var health = hostHealth(data);
 
-    if (data.error && !data.services) {
-        return '<div class="card error"><div class="card-head"><span class="card-name">' +
-            name + '</span><span class="dot err"></span></div>' +
-            '<div style="color:#c0392b;font-size:13px;">' + escapeHtml(data.error) + '</div></div>';
-    }
-
     var hostDot = '';
     if (deviceStatus[name]) {
         var hs = deviceStatus[name];
         hostDot = '<span class="host-dot ' + hs + '"></span><span class="host-label">Host</span>';
+    }
+
+    if (data.error && !data.services) {
+        return '<div class="card error"><div class="card-head"><span class="card-name">' +
+            name + '</span><span><span class="dot err"></span>' + hostDot + '</span></div>' +
+            '<div style="color:#c0392b;font-size:13px;">' + escapeHtml(data.error) + '</div></div>';
     }
 
     var html = '<div class="card"><div class="card-head"><span class="card-name">' +
