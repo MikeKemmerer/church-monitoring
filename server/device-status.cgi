@@ -43,14 +43,6 @@ while IFS= read -r client; do
     STATUS="offline"
 
     case "$CHECK" in
-        ping)
-            # Legacy alias: probe the client's monitoring port
-            if [ -n "$CLIENT_PORT" ]; then
-                if timeout 2 bash -c "echo >/dev/tcp/$HOST/$CLIENT_PORT" 2>/dev/null; then
-                    STATUS="online"
-                fi
-            fi
-            ;;
         tcp:*)
             PROBE_PORT="${CHECK#tcp:}"
             if [[ "$PROBE_PORT" =~ ^[0-9]+$ ]]; then
