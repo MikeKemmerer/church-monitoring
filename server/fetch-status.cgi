@@ -20,15 +20,14 @@ RESULT="[]"
 while IFS= read -r client; do
     NAME=$(echo "$client" | jq -r '.name')
     HOST=$(echo "$client" | jq -r '.host')
-    PORT=$(echo "$client" | jq -r '.port')
-    AGENT=$(echo "$client" | jq -r '.agent // true')
+    PORT=$(echo "$client" | jq -r '.port // empty')
 
-    # Skip device-only entries (no monitoring agent)
-    if [ "$AGENT" = "false" ]; then
+    # Skip device-only entries (no monitoring port = no agent)
+    if [ -z "$PORT" ]; then
         continue
     fi
 
-    DATA=$(curl -s --connect-timeout 5 --max-time 15 \
+    DATA=$(curl -s --connect-timeout 3 --max-time 8 \
         --cert "$CERT" --key "$KEY" --cacert "$CA" \
         "https://${HOST}:${PORT}/cgi-bin/status.cgi?refresh=1" 2>/dev/null) || true
 
