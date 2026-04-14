@@ -52,6 +52,10 @@ button:disabled{opacity:0.5;cursor:default}
 .loading-msg{text-align:center;padding:40px;color:#7f8c8d;font-size:14px}
 .refresh-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .auto-label{font-size:11px;color:#7f8c8d}
+.dev-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dev-dot.online{background:#27ae60}
+.dev-dot.offline{background:#c0392b}
+.dev-label{font-size:12px;color:#a0a0c0;margin-left:4px}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
 .screenshot-area{width:100%}
@@ -262,10 +266,30 @@ function fetchAll() {
             data.forEach(function(d) { html += renderCard(d); });
             cards.innerHTML = html;
             document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+            fetchDeviceStatus();
         })
         .catch(function(err) {
             cards.innerHTML = '<div class="loading-msg" style="color:#c0392b;">Failed to fetch status: ' + escapeHtml(String(err)) + '</div>';
         });
+}
+
+function fetchDeviceStatus() {
+    fetch('/cgi-bin/device-status.cgi')
+        .then(function(r) { return r.json(); })
+        .then(function(ds) {
+            if (!ds || ds.error) return;
+            var cards = document.getElementById('cards');
+            for (var name in ds) {
+                var status = ds[name];
+                var dotClass = status === 'online' ? 'online' : 'offline';
+                var card = '<div class="card"><div class="card-head">' +
+                    '<span class="card-name">' + escapeHtml(name) + '</span>' +
+                    '<span class="dev-dot ' + dotClass + '"></span></div>' +
+                    '<div style="font-size:12px;color:#7f8c8d">Device check: ' + escapeHtml(status) + '</div></div>';
+                cards.insertAdjacentHTML('beforeend', card);
+            }
+        })
+        .catch(function() { /* device-status is optional */ });
 }
 
 function refreshOne(name) {
