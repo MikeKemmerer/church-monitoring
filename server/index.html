@@ -75,7 +75,7 @@ button{padding:4px 8px;font-size:11px}
 <h1>&#128225; Church Monitoring <a href="help.html">Help</a></h1>
 
 <div class="refresh-bar">
-    <button onclick="fetchAll()">&#x21bb; Refresh All</button>
+    <button onclick="fetchAll(true)">&#x21bb; Refresh All</button>
     <label class="auto-label"><input type="checkbox" id="autoRefresh" checked> Auto-refresh 60s</label>
     <span class="stale" id="lastUpdate"></span>
 </div>
@@ -259,9 +259,11 @@ function updateCecTimers() {
     });
 }
 
-function fetchAll() {
+function fetchAll(force) {
     var cards = document.getElementById('cards');
-    fetch('/cgi-bin/fetch-status.cgi')
+    var url = '/cgi-bin/fetch-status.cgi';
+    if (force) url += '?refresh=1';
+    fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (!Array.isArray(data)) {
