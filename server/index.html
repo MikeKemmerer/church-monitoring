@@ -298,12 +298,34 @@ function fetchDeviceStatus() {
                 var dotClass = status === 'online' ? 'online' : 'offline';
                 html += '<div class="dev-card">' +
                     '<span class="card-name">' + escapeHtml(name) + '</span>' +
-                    '<span class="dev-dot ' + dotClass + '"></span></div>';
+                    '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeAttr(name) + '"></span>' +
+                    '<button style="margin-left:6px;padding:2px 6px;font-size:11px" onclick="refreshDevice(\'' + escapeAttr(name) + '\')">' +
+                    '&#x21bb;</button></span></div>';
             });
             container.innerHTML = html;
             section.style.display = '';
         })
         .catch(function() { /* device-status is optional */ });
+}
+
+function refreshDevice(name) {
+    var dot = document.getElementById('dev-dot-' + name);
+    if (dot) { dot.className = 'dev-dot'; dot.style.background = '#7f8c8d'; }
+    fetch('/cgi-bin/device-status.cgi?refresh=1')
+        .then(function(r) { return r.json(); })
+        .then(function(ds) {
+            if (!ds || ds.error) return;
+            for (var k in ds) {
+                var el = document.getElementById('dev-dot-' + k);
+                if (el) {
+                    el.className = 'dev-dot ' + (ds[k] === 'online' ? 'online' : 'offline');
+                    el.style.background = '';
+                }
+            }
+        })
+        .catch(function() {
+            if (dot) { dot.className = 'dev-dot offline'; dot.style.background = ''; }
+        });
 }
 
 function refreshOne(name) {

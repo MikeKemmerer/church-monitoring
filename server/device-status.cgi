@@ -26,8 +26,12 @@ if [ -z "$DEVICE_COUNT" ] || [ "$DEVICE_COUNT" = "0" ] || [ "$DEVICE_COUNT" = "n
     exit 0
 fi
 
+# Parse query string for refresh flag
+FORCE_REFRESH=0
+echo "$QUERY_STRING" | tr '&' '\n' | grep -q '^refresh=1$' && FORCE_REFRESH=1
+
 # Return cached result if fresh enough
-if [ -f "$CACHE_FILE" ]; then
+if [ "$FORCE_REFRESH" -eq 0 ] && [ -f "$CACHE_FILE" ]; then
     AGE=$(( $(date +%s) - $(stat -c %Y "$CACHE_FILE") ))
     if [ "$AGE" -lt "$CACHE_MAX_AGE" ]; then
         cat "$CACHE_FILE"
