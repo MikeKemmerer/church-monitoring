@@ -56,6 +56,11 @@ button:disabled{opacity:0.5;cursor:default}
 .dev-dot.online{background:#27ae60}
 .dev-dot.offline{background:#c0392b}
 .dev-label{font-size:12px;color:#a0a0c0;margin-left:4px}
+.dev-section{margin-top:16px}
+.dev-section h2{font-size:14px;color:#7f8c8d;margin-bottom:8px}
+.dev-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.dev-card{background:#16213e;border-radius:6px;padding:10px 12px;border:1px solid #0f3460;display:flex;align-items:center;justify-content:space-between}
+.dev-card .card-name{font-size:14px;font-weight:600}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
 .screenshot-area{width:100%}
@@ -77,6 +82,11 @@ button{padding:4px 8px;font-size:11px}
 
 <div class="cards" id="cards">
     <div class="loading-msg"><span class="spinner"></span> Loading status&hellip;</div>
+</div>
+
+<div class="dev-section" id="devSection" style="display:none">
+    <h2>Devices</h2>
+    <div class="dev-cards" id="devCards"></div>
 </div>
 
 <script>
@@ -278,16 +288,20 @@ function fetchDeviceStatus() {
         .then(function(r) { return r.json(); })
         .then(function(ds) {
             if (!ds || ds.error) return;
-            var cards = document.getElementById('cards');
-            for (var name in ds) {
+            var keys = Object.keys(ds);
+            if (keys.length === 0) return;
+            var section = document.getElementById('devSection');
+            var container = document.getElementById('devCards');
+            var html = '';
+            keys.forEach(function(name) {
                 var status = ds[name];
                 var dotClass = status === 'online' ? 'online' : 'offline';
-                var card = '<div class="card"><div class="card-head">' +
+                html += '<div class="dev-card">' +
                     '<span class="card-name">' + escapeHtml(name) + '</span>' +
-                    '<span class="dev-dot ' + dotClass + '"></span></div>' +
-                    '<div style="font-size:12px;color:#7f8c8d">Device check: ' + escapeHtml(status) + '</div></div>';
-                cards.insertAdjacentHTML('beforeend', card);
-            }
+                    '<span class="dev-dot ' + dotClass + '"></span></div>';
+            });
+            container.innerHTML = html;
+            section.style.display = '';
         })
         .catch(function() { /* device-status is optional */ });
 }
