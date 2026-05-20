@@ -42,6 +42,108 @@ elif [ -f /sys/class/thermal/thermal_zone0/temp ]; then
     TEMP=$(awk "BEGIN{printf \"%.1f\", $RAW/1000}")
 fi
 
+# Disk percentage
+DISK_PCT=0
+DISK_TOTAL_NUM="${DISK_TOTAL## }"
+DISK_USED_NUM="${DISK_USED## }"
+if [[ "$DISK_TOTAL_NUM" =~ ^[0-9]+$ ]] && [ "$DISK_TOTAL_NUM" -gt 0 ]; then
+    DISK_PCT=$(awk "BEGIN{printf \"%.1f\", $DISK_USED_NUM * 100 / $DISK_TOTAL_NUM}")
+fi
+
+# Pi throttle state (hex string; empty if unavailable)
+THROTTLE_HEX=""
+if command -v vcgencmd &>/dev/null; then
+    THROTTLE_HEX=$(vcgencmd get_throttled 2>/dev/null | grep -oP '0x[0-9a-fA-F]+' || echo "")
+fi
+
+# HDMI/display connection state
+HDMI_STATE=""
+HDMI_SOURCE=""
+HDMI_RAW=""
+if command -v tvservice &>/dev/null; then
+    TVRAW=$(tvservice -s 2>/dev/null || echo "")
+    if [ -n "$TVRAW" ]; then
+        HDMI_SOURCE="tvservice"
+        HDMI_RAW="$TVRAW"
+        if echo "$TVRAW" | grep -qiE 'HDMI CEA|HDMI DMT|DVI'; then
+            HDMI_STATE="connected"
+        elif echo "$TVRAW" | grep -qi 'off\|no device\|TV is off'; then
+            HDMI_STATE="disconnected"
+        else
+            HDMI_STATE="unknown"
+        fi
+    fi
+fi
+
+if [ -z "$HDMI_STATE" ]; then
+    SYSFS_RAW=$(grep -H . /sys/class/drm/*/status 2>/dev/null || true)
+    if [ -n "$SYSFS_RAW" ]; then
+        HDMI_SOURCE="sysfs"
+        # Ignore non-display virtual connectors (e.g., Writeback) for state and hover details.
+        SYSFS_DISPLAY=$(echo "$SYSFS_RAW" | grep -E '/(card[0-9]+-(HDMI|DVI|DP|eDP)-[^/]+)/status:' || true)
+        [ -z "$SYSFS_DISPLAY" ] && SYSFS_DISPLAY="$SYSFS_RAW"
+
+        HDMI_RAW=$(echo "$SYSFS_DISPLAY" | \
+            sed -E 's|/sys/class/drm/||; s|/status:|:|g' | tr '\n' ';' | sed 's/;$//')
+
+        if echo "$SYSFS_DISPLAY" | grep -q ':connected'; then
+            HDMI_STATE="connected"
+        elif echo "$SYSFS_DISPLAY" | grep -q ':disconnected'; then
+            HDMI_STATE="disconnected"
+        else
+            HDMI_STATE="unknown"
+        fi
+    fi
+fi
+
+if [ -z "$HDMI_STATE" ] && command -v xrandr &>/dev/null; then
+    XRRAW=$(xrandr --query 2>/dev/null || echo "")
+    if [ -n "$XRRAW" ]; then
+        HDMI_SOURCE="xrandr"
+        HDMI_RAW=$(echo "$XRRAW" | tr '\n' ';' | sed 's/;$//' | cut -c1-220)
+        if echo "$XRRAW" | grep -q ' connected'; then
+            HDMI_STATE="connected"
+        else
+            HDMI_STATE="disconnected"
+        fi
+    fi
+fi
+
+[ -z "$HDMI_STATE" ] && HDMI_STATE="unknown"
+
+# TLS certificate expiry (days remaining; -1 = unavailable)
+CERT_DAYS=-1
+CERT_EXPIRY_UTC=""
+CERT_PATH="/etc/church-monitoring/ssl/agent.crt"
+if [ -f "$CERT_PATH" ]; then
+    EXP_RAW=$(openssl x509 -enddate -noout -in "$CERT_PATH" 2>/dev/null | cut -d= -f2 || echo "")
+    if [ -n "$EXP_RAW" ]; then
+        CERT_EXPIRY_UTC=$(date -u -d "$EXP_RAW" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+        EXP_EPOCH=$(date -d "$EXP_RAW" +%s 2>/dev/null || echo "0")
+        NOW_EPOCH=$(date +%s)
+        CERT_DAYS=$(( (EXP_EPOCH - NOW_EPOCH) / 86400 ))
+    fi
+fi
+
+# Church-calendar image folder check (configurable via .calendar_images_path in client-config.json)
+CAL_IMG_TOTAL=-1
+CAL_IMG_STALE=-1
+CAL_IMG_DIR=$(jq -r '.calendar_images_path // empty' "$CONFIG" 2>/dev/null || echo "")
+[ -z "$CAL_IMG_DIR" ] && CAL_IMG_DIR="/var/www/html/church-calendar/images"
+if [ -d "$CAL_IMG_DIR" ]; then
+    TODAY=$(date +%Y-%m-%d)
+    CAL_IMG_TOTAL=0
+    CAL_IMG_STALE=0
+    while IFS= read -r f; do
+        CAL_IMG_TOTAL=$((CAL_IMG_TOTAL + 1))
+        BASENAME=$(basename "$f")
+        FILE_DATE=$(echo "$BASENAME" | grep -oP '^\d{4}-\d{2}-\d{2}' || echo "")
+        if [ -n "$FILE_DATE" ] && [[ "$FILE_DATE" < "$TODAY" ]]; then
+            CAL_IMG_STALE=$((CAL_IMG_STALE + 1))
+        fi
+    done < <(find "$CAL_IMG_DIR" -maxdepth 1 -type f 2>/dev/null || true)
+fi
+
 # --- Service/Process Checks ---
 
 SERVICES="[]"
@@ -94,6 +196,15 @@ jq -n \
     --argjson disk_total "${DISK_TOTAL## }" \
     --argjson disk_used "${DISK_USED## }" \
     --argjson disk_avail "${DISK_AVAIL## }" \
+    --argjson disk_pct "$DISK_PCT" \
+    --arg throttle_hex "$THROTTLE_HEX" \
+    --arg hdmi "$HDMI_STATE" \
+    --arg hdmi_source "$HDMI_SOURCE" \
+    --arg hdmi_raw "$HDMI_RAW" \
+    --argjson cert_days "$CERT_DAYS" \
+    --arg cert_expiry_utc "$CERT_EXPIRY_UTC" \
+    --argjson cal_img_total "$CAL_IMG_TOTAL" \
+    --argjson cal_img_stale "$CAL_IMG_STALE" \
     --argjson temp "$TEMP" \
     --argjson services "$SERVICES" \
     --argjson cec "$CEC_ENABLED" \
@@ -103,8 +214,15 @@ jq -n \
         uptime_seconds: $uptime,
         load: {avg_1: $load1, avg_5: $load5, avg_15: $load15},
         memory: {total_mb: $mem_total, used_mb: $mem_used, available_mb: $mem_avail},
-        disk: {total_mb: $disk_total, used_mb: $disk_used, available_mb: $disk_avail},
+        disk: {total_mb: $disk_total, used_mb: $disk_used, available_mb: $disk_avail, pct: $disk_pct},
         temperature_c: $temp,
+        throttle_hex: (if $throttle_hex == "" then null else $throttle_hex end),
+        hdmi: (if $hdmi == "" then null else $hdmi end),
+        hdmi_source: (if $hdmi_source == "" then null else $hdmi_source end),
+        hdmi_raw: (if $hdmi_raw == "" then null else $hdmi_raw end),
+        cert_days: (if $cert_days == -1 then null else $cert_days end),
+        cert_expires_utc: (if $cert_expiry_utc == "" then null else $cert_expiry_utc end),
+        calendar_images: (if $cal_img_total == -1 then null else {total: $cal_img_total, stale: $cal_img_stale} end),
         services: $services,
         cec_enabled: $cec
     }' > "${CACHE}.tmp"

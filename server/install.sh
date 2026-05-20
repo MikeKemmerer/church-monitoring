@@ -9,7 +9,8 @@ CA_DIR="$CONF_DIR/ca"
 SSL_DIR="$CONF_DIR/ssl"
 TOKEN_DIR="$CONF_DIR/tokens"
 WEB_ROOT="/var/www/church-monitoring"
-CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+CGI_DIR="/usr/lib/cgi-bin/church-monitoring-server"
+LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 DEFAULT_PORT=8080
 
 # ── Help ──────────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ File locations:
     /etc/church-monitoring/ssl/          Server client certificate
     /etc/church-monitoring/tokens/       Enrollment tokens
     /var/www/church-monitoring/          Dashboard web root
-    /usr/lib/cgi-bin/church-monitoring/  CGI scripts
+    /usr/lib/cgi-bin/church-monitoring-server/  CGI scripts
 EOF
     exit 0
 }
@@ -158,6 +159,8 @@ if [[ $UPDATE -eq 1 ]]; then
     # Install web files and scripts
     echo "Updating dashboard and CGI scripts..."
 
+    mkdir -p "$CGI_DIR"
+
     cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
     cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
     chown -R www-data:www-data "$WEB_ROOT"
@@ -169,8 +172,14 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
     cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
     cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
+    cp "$SCRIPT_DIR/host-action.cgi" "$CGI_DIR/host-action.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
+
+    # Remove legacy shared CGI directory after migration.
+    if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
+        rm -rf "$LEGACY_CGI_DIR"
+    fi
 
     cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh
     cp "$SCRIPT_DIR/sign-csr.sh" /usr/local/bin/sign-csr.sh
@@ -367,8 +376,14 @@ cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
 cp "$SCRIPT_DIR/fetch-screenshot.cgi" "$CGI_DIR/fetch-screenshot.cgi"
 cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
 cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
+cp "$SCRIPT_DIR/host-action.cgi" "$CGI_DIR/host-action.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
+
+# Remove legacy shared CGI directory after migration.
+if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
+    rm -rf "$LEGACY_CGI_DIR"
+fi
 
 # Ensure server-config.json is writable by CGI (enrollment adds clients)
 if [[ -f "$CONFIG" ]]; then

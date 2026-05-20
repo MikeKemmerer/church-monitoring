@@ -5,7 +5,8 @@ set -e
 
 CONF_DIR="/etc/church-monitoring"
 WEB_ROOT="/var/www/church-monitoring"
-CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+CGI_DIR="/usr/lib/cgi-bin/church-monitoring-server"
+LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 VHOST="/etc/apache2/sites-available/church-monitoring-server.conf"
 
 show_help() {
@@ -76,6 +77,11 @@ fi
 if [[ -d "$CGI_DIR" ]]; then
     echo "Removing CGI scripts..."
     rm -rf "$CGI_DIR"
+fi
+
+if [[ -d "$LEGACY_CGI_DIR" ]]; then
+    echo "Removing legacy CGI directory..."
+    rm -rf "$LEGACY_CGI_DIR"
 fi
 
 # Remove admin scripts

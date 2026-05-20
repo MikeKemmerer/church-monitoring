@@ -5,7 +5,8 @@ set -e
 
 CONF_DIR="/etc/church-monitoring"
 CACHE_DIR="/var/cache/church-monitoring"
-CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+CGI_DIR="/usr/lib/cgi-bin/church-monitoring-client"
+LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 LOCK=\"$CACHE_DIR/.collect.lock\"
 VHOST="/etc/apache2/sites-available/church-monitoring-client.conf"
 CLIENT_PORT=8033
@@ -73,6 +74,11 @@ systemctl reload apache2 2>/dev/null || true
 if [[ -d "$CGI_DIR" ]]; then
     echo "Removing CGI scripts..."
     rm -rf "$CGI_DIR"
+fi
+
+if [[ -d "$LEGACY_CGI_DIR" ]]; then
+    echo "Removing legacy CGI directory..."
+    rm -rf "$LEGACY_CGI_DIR"
 fi
 
 # Remove collector and helper scripts

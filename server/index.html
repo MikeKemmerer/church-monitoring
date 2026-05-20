@@ -45,6 +45,15 @@ button:hover{background:#1a4a7a}
 button:disabled{opacity:0.5;cursor:default}
 .btn-restart{background:#8b4513;border-color:#a0522d;font-size:11px;padding:2px 6px}
 .btn-restart:hover{background:#a0522d}
+.btn-danger{background:#6b1515;border-color:#8b1010}.btn-danger:hover{background:#8b1010}
+.btn-mode{background:#1a5a3a;border-color:#1e6e44}.btn-mode:hover{background:#1e6e44}
+.confirm-inline{display:inline-flex;align-items:center;gap:5px;background:#1e1e1e;border:1px solid #f39c12;border-radius:4px;padding:3px 8px;font-size:11px;color:#f39c12;flex-wrap:wrap;margin-top:4px}
+.confirm-inline button{padding:2px 7px;font-size:11px}
+.badge{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:3px;font-weight:600;vertical-align:middle}
+.badge-warn{background:#f39c12;color:#000}
+.badge-err{background:#c0392b;color:#fff}
+.cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
+.cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
 .stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
@@ -180,9 +189,58 @@ function renderCard(data) {
     html += '<span>Uptime<span class="val">' + formatUptime(data.uptime_seconds) + '</span></span>';
     if (data.load) html += '<span>CPU Load<span class="val">' + data.load.avg_1 + '</span></span>';
     if (data.memory) html += '<span>Memory<span class="val">' + data.memory.used_mb + '/' + data.memory.total_mb + ' MB</span></span>';
-    if (data.disk) html += '<span>Disk<span class="val">' + Math.round(data.disk.used_mb / 1024 * 10) / 10 + '/' + Math.round(data.disk.total_mb / 1024 * 10) / 10 + ' GB</span></span>';
-    if (data.temperature_c !== null && data.temperature_c !== undefined) html += '<span>Temp<span class="val">' + data.temperature_c + '&deg;C</span></span>';
+    if (data.disk) {
+        var diskPct = data.disk.pct != null ? parseFloat(data.disk.pct) : 0;
+        var diskStyle = diskPct >= 95 ? ' style="color:#c0392b"' : diskPct >= 85 ? ' style="color:#f39c12"' : '';
+        html += '<span>Disk<span class="val"' + diskStyle + '>' +
+            Math.round(data.disk.used_mb / 1024 * 10) / 10 + '/' +
+            Math.round(data.disk.total_mb / 1024 * 10) / 10 + ' GB' +
+            (diskPct ? '<small style="font-size:10px;margin-left:2px">(' + diskPct + '%)</small>' : '') +
+            '</span></span>';
+    }
+    if (data.temperature_c !== null && data.temperature_c !== undefined) {
+        var tempC = parseFloat(data.temperature_c);
+        var tempStyle = tempC >= 80 ? ' style="color:#c0392b"' : tempC >= 70 ? ' style="color:#f39c12"' : '';
+        var thrBadge = '';
+        if (data.throttle_hex && data.throttle_hex !== '0x0') {
+            var tval = parseInt(data.throttle_hex, 16);
+            if (tval & 0xf) thrBadge = ' <span class="badge badge-err" title="' + escapeHtml(data.throttle_hex) + '">THR</span>';
+            else if (tval & 0xf0000) thrBadge = ' <span class="badge badge-warn" title="' + escapeHtml(data.throttle_hex) + '">THR\u2605</span>';
+        }
+        html += '<span>Temp<span class="val"' + tempStyle + '>' + data.temperature_c + '&deg;C' + thrBadge + '</span></span>';
+    }
     html += '</div>';
+
+    // HDMI state, cert expiry, and calendar images info rows
+    var infoRow = [];
+    if (data.hdmi) {
+        var hdmiCol = data.hdmi === 'connected' ? '#27ae60' : (data.hdmi === 'unknown' ? '#7f8c8d' : '#c0392b');
+        var hdmiTip = '';
+        if (data.hdmi_source || data.hdmi_raw) {
+            hdmiTip = 'Detection source: ' + (data.hdmi_source || 'n/a');
+            if (data.hdmi_raw) {
+                var details = String(data.hdmi_raw).replace(/;/g, '\n');
+                hdmiTip += '\nConnectors:\n' + details;
+            }
+        }
+        infoRow.push('<span' + (hdmiTip ? ' title="' + escapeHtml(hdmiTip) + '"' : '') + '>HDMI: <b style="color:' + hdmiCol + '">' + escapeHtml(data.hdmi) + '</b></span>');
+    }
+    if (data.cert_days != null) {
+        var certCol = data.cert_days < 14 ? '#c0392b' : data.cert_days < 30 ? '#f39c12' : '#7f8c8d';
+        var certExpiry = data.cert_expires_utc || 'unknown';
+        var certTip = 'Days remaining until the client TLS certificate expires. Expires: ' + certExpiry;
+        infoRow.push('<span style="color:' + certCol + '" title="' + escapeHtml(certTip) + '">Cert: ' + data.cert_days + 'd</span>');
+    }
+    if (infoRow.length) {
+        html += '<div style="font-size:11px;display:flex;gap:12px;margin-bottom:5px;">' + infoRow.join('') + '</div>';
+    }
+    if (data.calendar_images) {
+        var ci = data.calendar_images;
+        html += '<div class="' + (ci.stale > 0 ? 'cal-info-warn' : 'cal-info') + '">';
+        html += '&#128444; Cal images: <b>' + ci.total + '</b>';
+        if (ci.stale > 0) html += ' &mdash; <span class="badge badge-warn">' + ci.stale + ' stale</span>';
+        html += '</div>';
+    }
 
     // Services list (flex rows instead of table)
     if (data.services && data.services.length) {
@@ -211,6 +269,19 @@ function renderCard(data) {
         html += '</span>';
     }
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
+    // Mode switch (show if kiosk processes are monitored)
+    var hasVlc = false, hasMidori = false;
+    (data.services || []).forEach(function(svc) {
+        if (svc.name === 'vlc') hasVlc = true;
+        if (svc.name === 'midori') hasMidori = true;
+    });
+    if (hasVlc || hasMidori) {
+        html += '<span class="btn-group">';
+        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
+        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+        html += '</span>';
+    }
+    html += '<button class="btn-danger" onclick="rebootHost(\'' + escapeAttr(name) + '\',this)">&#x23FB; Reboot</button>';
     html += '</div>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
 
@@ -409,8 +480,7 @@ function captureScreen(name) {
 
 function restartService(host, service) {
     if (!confirm('Restart ' + service + ' on ' + host + '?')) return;
-    fetch('/cgi-bin/restart-service.cgi?host=' + encodeURIComponent(host) + '&service=' + encodeURIComponent(service))
-        .then(function(r) { return r.json(); })
+    fetchJson('/cgi-bin/restart-service.cgi?host=' + encodeURIComponent(host) + '&service=' + encodeURIComponent(service))
         .then(function(data) {
             if (data.error) {
                 alert('Error: ' + data.error);
@@ -422,6 +492,68 @@ function restartService(host, service) {
         .catch(function(err) {
             alert('Restart failed: ' + err);
         });
+}
+
+function modeSwitch(host, mode, btn) {
+    var orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    fetchJson('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(host) + '&action=mode-switch&mode=' + encodeURIComponent(mode))
+        .then(function(data) {
+            if (data.error) { alert('Mode switch failed: ' + data.error); }
+            else { setTimeout(function() { fetchAll(); }, 2000); }
+        })
+        .catch(function(err) { alert('Mode switch failed: ' + err); })
+        .finally(function() { btn.disabled = false; btn.innerHTML = orig; });
+}
+
+function rebootHost(host, btn) {
+    var confirmId = 'reboot-confirm-' + host.replace(/[^a-zA-Z0-9]/g, '-');
+    var existing = document.getElementById(confirmId);
+    if (existing) { existing.remove(); return; }
+    var actionsDiv = btn.parentNode;
+    var panel = document.createElement('div');
+    panel.id = confirmId;
+    panel.className = 'confirm-inline';
+    panel.innerHTML =
+        '&#9888; Reboot <b>' + escapeHtml(host) + '</b>? ' +
+        '<button onclick="doReboot(\'' + escapeAttr(host) + '\')" style="background:#8b1010;border-color:#a01515">Confirm</button>' +
+        ' <button onclick="document.getElementById(\'' + confirmId + '\').remove()">Cancel</button>';
+    actionsDiv.appendChild(panel);
+    setTimeout(function() { var p = document.getElementById(confirmId); if (p) p.remove(); }, 15000);
+}
+
+function doReboot(host) {
+    var confirmId = 'reboot-confirm-' + host.replace(/[^a-zA-Z0-9]/g, '-');
+    var panel = document.getElementById(confirmId);
+    if (panel) panel.innerHTML = '<span class="spinner"></span> Rebooting&hellip;';
+    fetchJson('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(host) + '&action=reboot')
+        .then(function(data) {
+            if (data.error) {
+                if (panel) panel.remove();
+                alert('Reboot failed: ' + data.error);
+            } else {
+                if (panel) panel.innerHTML = '&#x2713; Rebooting &mdash; reconnecting in 20s&hellip;';
+                setTimeout(function() { if (panel) panel.remove(); fetchAll(); }, 20000);
+            }
+        })
+        .catch(function(err) {
+            if (panel) panel.remove();
+            alert('Reboot request failed: ' + err);
+        });
+}
+
+function fetchJson(url) {
+    return fetch(url).then(function(r) {
+        return r.text().then(function(text) {
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                var snippet = text.replace(/\s+/g, ' ').slice(0, 140);
+                throw new Error('HTTP ' + r.status + ' non-JSON response: ' + snippet);
+            }
+        });
+    });
 }
 
 // Initial fetch
