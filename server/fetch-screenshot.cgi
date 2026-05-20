@@ -39,7 +39,7 @@ fi
 HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
-TMPFILE="/tmp/church-monitoring-proxy-screenshot-$$.jpg"
+TMPFILE=$(mktemp /tmp/church-monitoring-proxy-screenshot-XXXXXX.jpg)
 
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 15 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \

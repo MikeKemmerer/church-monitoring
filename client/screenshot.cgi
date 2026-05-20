@@ -2,7 +2,7 @@
 # screenshot.cgi — Captures the X11 display and serves a low-res JPEG.
 # Uses sudo to run church-screenshot.sh as the X display owner.
 
-TMPFILE="/tmp/church-monitoring-screenshot-$$.jpg"
+TMPFILE=$(mktemp /tmp/church-monitoring-screenshot-XXXXXX.jpg)
 HELPER="/usr/local/bin/church-screenshot.sh"
 WIDTH=480
 QUALITY=40

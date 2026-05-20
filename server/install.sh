@@ -386,9 +386,9 @@ if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
 fi
 
 # Ensure server-config.json is writable by CGI (enrollment adds clients)
-if [[ -f "$CONFIG" ]]; then
-    chown root:www-data "$CONFIG"
-    chmod 660 "$CONFIG"
+if [[ -f "$CONF_DIR/server-config.json" ]]; then
+    chown root:www-data "$CONF_DIR/server-config.json"
+    chmod 660 "$CONF_DIR/server-config.json"
 fi
 
 # Admin scripts
@@ -475,7 +475,7 @@ echo "=============================================="
 echo "  Server installation complete!"
 echo "=============================================="
 echo ""
-echo "Dashboard: http://$(hostname -I | awk '{print $1}'):${PORT}/"
+echo "Dashboard: https://$(hostname -I | awk '{print $1}'):${PORT}/"
 echo ""
 echo "Enrollment token for client setup:"
 echo ""

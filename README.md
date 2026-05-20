@@ -122,7 +122,7 @@ sudo ./server/sign-csr.sh <path-to-csr>
 | `/etc/church-monitoring/tokens/` | Enrollment tokens |
 | `/etc/church-monitoring/.htpasswd` | Dashboard credentials |
 | `/var/www/church-monitoring/` | Dashboard web root |
-| `/usr/lib/cgi-bin/church-monitoring/` | CGI scripts |
+| `/usr/lib/cgi-bin/church-monitoring-server/` | Server CGI scripts |
 
 ### Client
 
@@ -132,7 +132,7 @@ sudo ./server/sign-csr.sh <path-to-csr>
 | `/etc/church-monitoring/ssl/` | Agent certificate and CA cert |
 | `/etc/church-monitoring/client-config.json` | Service configuration |
 | `/var/cache/church-monitoring/` | Cached status data |
-| `/usr/lib/cgi-bin/church-monitoring/` | CGI scripts |
+| `/usr/lib/cgi-bin/church-monitoring-client/` | Client CGI scripts |
 
 ## Configuration Examples
 
