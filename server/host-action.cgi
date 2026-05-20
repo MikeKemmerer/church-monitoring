@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# host-action.cgi â€” Proxies host control actions to a specific client.
+# host-action.cgi - Proxies host control actions to a specific client.
 # Called by the dashboard with ?host=<client_name>&action=<action>[&param=value]
 #
 # Supported actions:
-#   reboot             â€” reboots the client host
-#   mode-switch&mode=vlc|midori  â€” switches kiosk display mode
+#   reboot             - reboots the client host
+#   mode-switch&mode=vlc|midori  - switches kiosk display mode
 
 echo "Content-Type: application/json"
 echo ""

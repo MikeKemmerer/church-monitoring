@@ -7,7 +7,7 @@ CONF_DIR="/etc/church-monitoring"
 CACHE_DIR="/var/cache/church-monitoring"
 CGI_DIR="/usr/lib/cgi-bin/church-monitoring-client"
 LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
-LOCK=\"$CACHE_DIR/.collect.lock\"
+LOCK="$CACHE_DIR/.collect.lock"
 VHOST="/etc/apache2/sites-available/church-monitoring-client.conf"
 CLIENT_PORT=8033
 
@@ -85,8 +85,11 @@ fi
 echo "Removing collector..."
 rm -f /usr/local/bin/church-monitoring-collect
 rm -f /usr/local/bin/church-screenshot.sh
+rm -f /usr/local/bin/church-monitoring-reboot-host
+rm -f /usr/local/bin/church-monitoring-mode-midori
 rm -f /etc/sudoers.d/church-monitoring-screenshot
 rm -f /etc/sudoers.d/church-monitoring-restart
+rm -f /etc/sudoers.d/church-monitoring-actions
 
 # Remove lock file
 rm -f "$LOCK"

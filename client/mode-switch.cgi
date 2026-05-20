@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mode-switch.cgi â€” Switches between VLC (live stream) and Midori (calendar) modes.
+# mode-switch.cgi - Switches between VLC (live stream) and Midori (calendar) modes.
 # Accepts ?mode=vlc|midori
 # Only meaningful on hosts running videokiosk2.
 
@@ -33,6 +33,6 @@ case "$MODE_CLEAN" in
         fi
         ;;
     *)
-        echo '{"error":"invalid mode â€” use: vlc or midori"}'
+        echo '{"error":"invalid mode - use: vlc or midori"}'
         ;;
 esac

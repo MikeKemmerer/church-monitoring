@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# reboot.cgi â€” Safely reboots this host.
+# reboot.cgi - Safely reboots this host.
 # Requires ?guard=confirm to prevent accidental invocation.
 
 echo "Content-Type: application/json"
