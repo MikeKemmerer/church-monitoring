@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# church-monitoring-reboot-host â€” Brief delay then reboots the host.
+# Called via sudo by reboot.cgi. Must be installed as root-owned executable.
+sleep 3
+exec /sbin/reboot

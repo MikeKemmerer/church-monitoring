@@ -7,7 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONF_DIR="/etc/church-monitoring"
 SSL_DIR="$CONF_DIR/ssl"
 CACHE_DIR="/var/cache/church-monitoring"
-CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+CGI_DIR="/usr/lib/cgi-bin/church-monitoring-client"
+LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 CLIENT_PORT=8033
 
 # ── Help ──────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ File locations:
     /etc/church-monitoring/ssl/          Agent certificate and CA cert
     /etc/church-monitoring/client-config.json  Service configuration
     /var/cache/church-monitoring/         Cached status data
-    /usr/lib/cgi-bin/church-monitoring/  CGI scripts
+    /usr/lib/cgi-bin/church-monitoring-client/  CGI scripts
 EOF
     exit 0
 }
@@ -365,13 +366,46 @@ fi
 echo ""
 echo "Step 4/6: Installing CGI scripts..."
 
-cp "$SCRIPT_DIR/status.cgi" "$CGI_DIR/status.cgi"
-cp "$SCRIPT_DIR/cec-check.cgi" "$CGI_DIR/cec-check.cgi"
-cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
-cp "$SCRIPT_DIR/screenshot.cgi" "$CGI_DIR/screenshot.cgi"
-cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
+mkdir -p "$CGI_DIR"
+
+REQUIRED_CGI=(
+    status.cgi
+    cec-check.cgi
+    cec-control.cgi
+    screenshot.cgi
+    restart-service.cgi
+    reboot.cgi
+    mode-switch.cgi
+)
+
+for CGI_FILE in "${REQUIRED_CGI[@]}"; do
+    if [[ ! -f "$SCRIPT_DIR/$CGI_FILE" ]]; then
+        echo "Error: missing installer source file $SCRIPT_DIR/$CGI_FILE" >&2
+        exit 1
+    fi
+
+    cp "$SCRIPT_DIR/$CGI_FILE" "$CGI_DIR/$CGI_FILE"
+    # Normalize line endings to avoid '/usr/bin/env: bash\r' on Raspberry Pi.
+    sed -i 's/\r$//' "$CGI_DIR/$CGI_FILE"
+done
+
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
+
+for CGI_FILE in "${REQUIRED_CGI[@]}"; do
+    if [[ ! -x "$CGI_DIR/$CGI_FILE" ]]; then
+        echo "Error: failed to install executable CGI: $CGI_DIR/$CGI_FILE" >&2
+        exit 1
+    fi
+done
+
+# Remove retired action CGI endpoints.
+rm -f "$CGI_DIR/restart-network.cgi" "$CGI_DIR/restart-display.cgi"
+
+# Remove legacy shared CGI directory after migration.
+if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
+    rm -rf "$LEGACY_CGI_DIR"
+fi
 
 # Install helper scripts
 cp "$SCRIPT_DIR/church-screenshot.sh" /usr/local/bin/church-screenshot.sh
@@ -391,11 +425,67 @@ chmod 440 /etc/sudoers.d/church-monitoring-restart
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
 
+# Install host-control helper scripts
+for HELPER in church-monitoring-reboot-host church-monitoring-mode-midori; do
+    if [ -f "$SCRIPT_DIR/$HELPER" ]; then
+        cp "$SCRIPT_DIR/$HELPER" "/usr/local/bin/$HELPER"
+        sed -i 's/\r$//' "/usr/local/bin/$HELPER"
+        chmod 755 "/usr/local/bin/$HELPER"
+    fi
+done
+
+# Remove retired helper scripts.
+rm -f /usr/local/bin/church-monitoring-restart-network /usr/local/bin/church-monitoring-restart-display
+
+# Allow www-data to run host-control helpers as root
+cat > /etc/sudoers.d/church-monitoring-actions <<'SUDOEOF'
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-reboot-host
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-mode-midori
+SUDOEOF
+chmod 440 /etc/sudoers.d/church-monitoring-actions
+
 echo "  CGI scripts and collector installed."
 
 if [[ $UPDATE -eq 1 ]]; then
+    # Rewrite Apache vhost so ScriptAlias matches current CGI_DIR.
+    VHOST="/etc/apache2/sites-available/church-monitoring-client.conf"
+    cat > "$VHOST" <<VHEOF
+<VirtualHost *:${CLIENT_PORT}>
+    ServerName ${CLIENT_HOSTNAME}
+
+    SSLEngine on
+    SSLCertificateFile ${SSL_DIR}/agent.crt
+    SSLCertificateKeyFile ${SSL_DIR}/agent.key
+
+    # Require client certificate signed by our CA
+    SSLCACertificateFile ${SSL_DIR}/ca.crt
+    SSLVerifyClient require
+    SSLVerifyDepth 1
+
+    ScriptAlias /cgi-bin/ ${CGI_DIR}/
+
+    <Directory ${CGI_DIR}>
+        Options +ExecCGI
+        AddHandler cgi-script .cgi
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log
+    CustomLog \${APACHE_LOG_DIR}/church-monitoring-access.log combined
+</VirtualHost>
+VHEOF
+
+    a2enmod cgi >/dev/null 2>&1 || true
+    a2enmod ssl >/dev/null 2>&1 || true
+    a2ensite church-monitoring-client.conf >/dev/null 2>&1 || true
+
     # Reload Apache to pick up any new CGI scripts
     systemctl reload apache2 2>/dev/null || true
+
+    ACTIVE_SCRIPTALIAS=$(grep -E "^[[:space:]]*ScriptAlias /cgi-bin/" "$VHOST" 2>/dev/null | awk '{print $3}' | head -1)
+    if [[ "$ACTIVE_SCRIPTALIAS" != "${CGI_DIR}/" ]]; then
+        echo "Warning: expected ScriptAlias ${CGI_DIR}/ but found ${ACTIVE_SCRIPTALIAS:-<none>}"
+    fi
 
     echo ""
     echo "=============================================="
@@ -403,7 +493,8 @@ if [[ $UPDATE -eq 1 ]]; then
     echo "=============================================="
     echo ""
     echo "Certificates and enrollment unchanged."
-    echo "Updated: config, CGI scripts, collector."
+    echo "Updated: config, CGI scripts, collector, Apache vhost."
+    echo "Active ScriptAlias: ${ACTIVE_SCRIPTALIAS:-<none>}"
     echo ""
 
     # Read final config for summary

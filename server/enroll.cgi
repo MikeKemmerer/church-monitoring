@@ -51,6 +51,13 @@ if [ -z "$CLIENT_HOST" ]; then
     cgi_error "400 Bad Request" "missing hostname parameter"
 fi
 
+# Sanitize hostname to prevent path traversal and command injection
+HOST_CLEAN=$(echo "$CLIENT_HOST" | tr -cd 'a-zA-Z0-9._-')
+if [ "$HOST_CLEAN" != "$CLIENT_HOST" ] || [ -z "$HOST_CLEAN" ]; then
+    cgi_error "400 Bad Request" "invalid hostname (alphanumeric, dash, dot, underscore only)"
+fi
+CLIENT_HOST="$HOST_CLEAN"
+
 CLIENT_PORT="${CLIENT_PORT:-8033}"
 
 # Validate token exists
