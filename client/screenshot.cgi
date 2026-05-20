@@ -2,7 +2,12 @@
 # screenshot.cgi — Captures the X11 display and serves a low-res JPEG.
 # Uses sudo to run church-screenshot.sh as the X display owner.
 
-TMPFILE=$(mktemp /tmp/church-monitoring-screenshot-XXXXXX.jpg)
+# Generate an unpredictable name without creating the file: the helper runs
+# as a different user (DISP_USER) via sudo and must be able to create/write
+# the output file itself. Pre-creating with `mktemp` would leave the file
+# owned by the CGI user (www-data) with mode 0600, which the helper cannot
+# overwrite.
+TMPFILE=$(mktemp -u /tmp/church-monitoring-screenshot-XXXXXX.jpg)
 HELPER="/usr/local/bin/church-screenshot.sh"
 WIDTH=480
 QUALITY=40
