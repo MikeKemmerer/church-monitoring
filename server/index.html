@@ -126,6 +126,8 @@ function ago(ts) {
 function statusClass(s) {
     if (!s) return 's-unknown';
     if (s === 'active' || s.indexOf('running') === 0) return 's-active';
+    if (s === 'ok') return 's-active';
+    if (s === 'fail') return 's-inactive';
     if (s === 'inactive' || s === 'not running') return 's-inactive';
     return 's-unknown';
 }
@@ -247,8 +249,12 @@ function renderCard(data) {
     if (data.services && data.services.length) {
         html += '<div class="svc-list">';
         data.services.forEach(function(svc) {
+            var detailHtml = '';
+            if (svc.detail) {
+                detailHtml = '<div class="svc-type" style="margin-top:2px;max-width:100%;overflow-wrap:anywhere;">' + escapeHtml(svc.detail) + '</div>';
+            }
             html += '<div class="svc-row"><span class="svc-name">' + escapeHtml(svc.name) +
-                '<span class="svc-type">' + svc.type + '</span></span>' +
+                '<span class="svc-type">' + svc.type + '</span>' + detailHtml + '</span>' +
                 '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
             if (svc.type === 'systemd') {
                 html += '<button class="btn-restart" onclick="restartService(\'' + escapeAttr(name) + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb;</button>';

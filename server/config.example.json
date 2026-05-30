@@ -5,7 +5,7 @@
         {"name": "host-b", "host": "192.168.1.XXX", "port": 8033}
     ],
     "devices": [
-        {"name": "Encoder", "host": "encoder-ip", "check": "http:8086"},
+        {"name": "Encoder", "host": "encoder-hostname", "check": "http:8086", "expected_mac": "aa:bb:cc:dd:ee:ff"},
         {"name": "Switcher", "host": "192.168.1.YYY", "check": "tcp:23"}
     ]
 }

@@ -9,6 +9,35 @@ CACHE="/var/cache/church-monitoring/status.json"
 CACHE_DIR="/var/cache/church-monitoring"
 LOCK="$CACHE_DIR/.collect.lock"
 
+get_hosts_ip() {
+    local hostname="$1"
+    awk -v host="$hostname" '
+        $1 !~ /^#/ {
+            for (i = 2; i <= NF; i++) {
+                if ($i == host) {
+                    print $1
+                    exit
+                }
+            }
+        }
+    ' /etc/hosts 2>/dev/null
+}
+
+get_mac_for_ip() {
+    local ip="$1"
+    local mac=""
+
+    if command -v ip >/dev/null 2>&1; then
+        mac=$(ip neigh show "$ip" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") {print $(i+1); exit}}')
+    fi
+
+    if [ -z "$mac" ] && command -v arp >/dev/null 2>&1; then
+        mac=$(arp -n "$ip" 2>/dev/null | awk '/ at / {for (i = 1; i <= NF; i++) if ($i == "at") {print $(i+1); exit}}')
+    fi
+
+    echo "$mac" | tr 'A-F' 'a-f'
+}
+
 # Ensure cache directory exists
 mkdir -p "$CACHE_DIR"
 
@@ -174,6 +203,56 @@ if [ -f "$CONFIG" ]; then
             --arg n "$NAME" --arg t "$TYPE" --arg s "$STATUS" \
             '. + [{"name":$n,"type":$t,"status":$s}]')
     done < <(jq -c '.monitors[]' "$CONFIG" 2>/dev/null || true)
+
+    # Optional informational check: verify encoder host mapping + MAC + connectivity.
+    ENCODER_HOST=$(jq -r '.encoder_identity_check.host // empty' "$CONFIG" 2>/dev/null || echo "")
+    ENCODER_EXPECTED_MAC=$(jq -r '.encoder_identity_check.expected_mac // empty' "$CONFIG" 2>/dev/null | tr 'A-F' 'a-f')
+    ENCODER_PORT=$(jq -r '.encoder_identity_check.port // 8086' "$CONFIG" 2>/dev/null || echo "8086")
+
+    if [ -n "$ENCODER_HOST" ] && [ -n "$ENCODER_EXPECTED_MAC" ]; then
+        ENC_STATUS="fail"
+        ENC_DETAIL=""
+        ENCODER_IP=""
+
+        if [[ "$ENCODER_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ENCODER_IP="$ENCODER_HOST"
+        else
+            ENCODER_IP=$(get_hosts_ip "$ENCODER_HOST")
+            if [ -z "$ENCODER_IP" ]; then
+                ENC_DETAIL="hosts-missing"
+            fi
+        fi
+
+        if [ -n "$ENCODER_IP" ]; then
+            if ping -c 1 -W 1 "$ENCODER_IP" >/dev/null 2>&1; then
+                ENCODER_MAC=$(get_mac_for_ip "$ENCODER_IP")
+                if [ "$ENCODER_MAC" = "$ENCODER_EXPECTED_MAC" ]; then
+                    if [[ "$ENCODER_PORT" =~ ^[0-9]+$ ]]; then
+                        if timeout 3 bash -c "echo >/dev/tcp/$ENCODER_IP/$ENCODER_PORT" 2>/dev/null; then
+                            ENC_STATUS="ok"
+                            ENC_DETAIL="ip=$ENCODER_IP mac=$ENCODER_MAC tcp=$ENCODER_PORT"
+                        else
+                            ENC_DETAIL="tcp-fail ip=$ENCODER_IP mac=$ENCODER_MAC port=$ENCODER_PORT"
+                        fi
+                    else
+                        ENC_STATUS="ok"
+                        ENC_DETAIL="ip=$ENCODER_IP mac=$ENCODER_MAC"
+                    fi
+                elif [ -z "$ENCODER_MAC" ]; then
+                    ENC_DETAIL="arp-missing ip=$ENCODER_IP"
+                else
+                    ENC_DETAIL="mac-mismatch ip=$ENCODER_IP got=$ENCODER_MAC"
+                fi
+            else
+                # Explicitly fail when encoder is offline/unreachable.
+                ENC_DETAIL="unreachable ip=$ENCODER_IP"
+            fi
+        fi
+
+        SERVICES=$(echo "$SERVICES" | jq \
+            --arg n "encoder_identity" --arg t "info" --arg s "$ENC_STATUS" --arg d "$ENC_DETAIL" \
+            '. + [{"name":$n,"type":$t,"status":$s,"detail":$d}]')
+    fi
 fi
 
 # --- Build Output ---

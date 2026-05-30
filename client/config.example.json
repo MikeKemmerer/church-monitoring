@@ -1,5 +1,10 @@
 {
     "hostname": "my-server",
+    "encoder_identity_check": {
+        "host": "server",
+        "expected_mac": "aa:bb:cc:dd:ee:ff",
+        "port": 8080
+    },
     "monitors": [
         {"name": "apache2", "type": "systemd"},
         {"name": "church-calendar", "type": "systemd"},
