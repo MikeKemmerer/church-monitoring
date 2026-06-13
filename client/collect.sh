@@ -410,9 +410,9 @@ FIRMWARE_CHECKED_UTC=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.checked_at // ""')
 SLOW_METRICS_JSON="[]"
 _m() {
     SLOW_METRICS_JSON=$(echo "$SLOW_METRICS_JSON" | jq \
-        --arg id "$1" --arg label "$2" --arg value "$3" \
+        --arg id "$1" --arg lbl "$2" --arg value "$3" \
         --arg status "$4" --arg tooltip "$5" \
-        '. + [{"id":$id, "label":$label, "value":$value, "status":$status, "tooltip":$tooltip}]')
+        '. + [{"id":$id, "label":$lbl, "value":$value, "status":$status, "tooltip":$tooltip}]')
 }
 
 if [ "$CERT_DAYS" != "-1" ] && [[ "$CERT_DAYS" =~ ^-?[0-9]+$ ]]; then
