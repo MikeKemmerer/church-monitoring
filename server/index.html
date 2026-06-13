@@ -228,12 +228,11 @@ function renderCard(data) {
         }
         infoRow.push('<span' + (hdmiTip ? ' title="' + escapeHtml(hdmiTip) + '"' : '') + '>HDMI: <b style="color:' + hdmiCol + '">' + escapeHtml(data.hdmi) + '</b></span>');
     }
-    if (data.cert_days != null) {
-        var certCol = data.cert_days < 14 ? '#c0392b' : data.cert_days < 30 ? '#f39c12' : '#7f8c8d';
-        var certExpiry = data.cert_expires_utc || 'unknown';
-        var certTip = 'Days remaining until the client TLS certificate expires. Expires: ' + certExpiry;
-        infoRow.push('<span style="color:' + certCol + '" title="' + escapeHtml(certTip) + '">Cert: ' + data.cert_days + 'd</span>');
-    }
+    (data.slow_metrics || []).forEach(function(m) {
+        if (m.status === 'unavailable') return;
+        var col = m.status === 'error' ? '#c0392b' : m.status === 'warn' ? '#f39c12' : '#7f8c8d';
+        infoRow.push('<span style="color:' + col + '" title="' + escapeHtml(m.tooltip || '') + '">' + escapeHtml(m.label) + ': ' + escapeHtml(m.value) + '</span>');
+    });
     if (infoRow.length) {
         html += '<div style="font-size:11px;display:flex;gap:12px;margin-bottom:5px;">' + infoRow.join('') + '</div>';
     }

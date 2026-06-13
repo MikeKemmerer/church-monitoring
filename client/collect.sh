@@ -8,6 +8,236 @@ CONFIG="/etc/church-monitoring/client-config.json"
 CACHE="/var/cache/church-monitoring/status.json"
 CACHE_DIR="/var/cache/church-monitoring"
 LOCK="$CACHE_DIR/.collect.lock"
+SLOW_CACHE_DIR="$CACHE_DIR/slow-metrics"
+
+DEFAULT_SLOW_TTL=43200
+
+get_config_ttl() {
+    local key="$1"
+    local default_ttl="$2"
+    local ttl
+
+    ttl=$(jq -r --arg key "$key" '.slow_metric_ttl_seconds[$key] // empty' "$CONFIG" 2>/dev/null || echo "")
+    if [[ "$ttl" =~ ^[0-9]+$ ]] && [ "$ttl" -gt 0 ]; then
+        echo "$ttl"
+    else
+        echo "$default_ttl"
+    fi
+}
+
+load_slow_metric() {
+    local metric_name="$1"
+    local ttl_seconds="$2"
+    local refresh_fn="$3"
+    local metric_file="$SLOW_CACHE_DIR/${metric_name}.json"
+    local now_epoch
+    local modified_epoch
+    local age_seconds
+    local refreshed_json
+
+    now_epoch=$(date +%s)
+
+    if [ -f "$metric_file" ]; then
+        modified_epoch=$(stat -c %Y "$metric_file" 2>/dev/null || echo "0")
+        age_seconds=$((now_epoch - modified_epoch))
+        if [ "$age_seconds" -lt "$ttl_seconds" ]; then
+            cat "$metric_file"
+            return 0
+        fi
+    fi
+
+    if refreshed_json=$("$refresh_fn"); then
+        printf '%s\n' "$refreshed_json" > "${metric_file}.tmp"
+        mv "${metric_file}.tmp" "$metric_file"
+        cat "$metric_file"
+        return 0
+    fi
+
+    if [ -f "$metric_file" ]; then
+        cat "$metric_file"
+        return 0
+    fi
+
+    return 1
+}
+
+refresh_tls_cert_metric() {
+    local cert_path
+    local checked_at
+    local cert_days_json="null"
+    local cert_expiry_utc=""
+    local exp_raw
+    local exp_epoch
+    local now_epoch
+
+    cert_path=$(jq -r '.cert_path // empty' "$CONFIG" 2>/dev/null || echo "")
+    [ -z "$cert_path" ] && cert_path="/etc/church-monitoring/ssl/agent.crt"
+    checked_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if [ -f "$cert_path" ]; then
+        exp_raw=$(openssl x509 -enddate -noout -in "$cert_path" 2>/dev/null | cut -d= -f2 || echo "")
+        if [ -n "$exp_raw" ]; then
+            cert_expiry_utc=$(date -u -d "$exp_raw" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+            exp_epoch=$(date -d "$exp_raw" +%s 2>/dev/null || echo "")
+            now_epoch=$(date +%s)
+            if [[ "$exp_epoch" =~ ^[0-9]+$ ]]; then
+                cert_days_json=$(( (exp_epoch - now_epoch) / 86400 ))
+            fi
+        fi
+    fi
+
+    jq -n \
+        --arg checked_at "$checked_at" \
+        --arg cert_expires_utc "$cert_expiry_utc" \
+        --argjson cert_days "$cert_days_json" \
+        '{
+            checked_at: $checked_at,
+            cert_days: $cert_days,
+            cert_expires_utc: (if $cert_expires_utc == "" then null else $cert_expires_utc end)
+        }'
+}
+
+refresh_tailscale_metric() {
+    local checked_at
+    local status="unavailable"
+    local key_expiry_utc=""
+    local key_days_json="null"
+    local key_expired_json="null"
+    local raw
+    local key_expiry_raw
+    local key_expired_raw
+    local exp_epoch
+    local now_epoch
+
+    checked_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    if command -v tailscale &>/dev/null; then
+        raw=$(tailscale status --json 2>/dev/null || echo "")
+        if [ -n "$raw" ]; then
+            status="ok"
+            key_expiry_raw=$(echo "$raw" | jq -r '.Self.KeyExpiry // empty' 2>/dev/null || echo "")
+            key_expired_raw=$(echo "$raw" | jq -r '.Self.Expired // empty' 2>/dev/null || echo "")
+
+            if [ -n "$key_expiry_raw" ]; then
+                key_expiry_utc=$(date -u -d "$key_expiry_raw" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+                exp_epoch=$(date -d "$key_expiry_raw" +%s 2>/dev/null || echo "")
+                now_epoch=$(date +%s)
+                if [[ "$exp_epoch" =~ ^[0-9]+$ ]]; then
+                    key_days_json=$(( (exp_epoch - now_epoch) / 86400 ))
+                fi
+            fi
+
+            if [ "$key_expired_raw" = "true" ] || [ "$key_expired_raw" = "false" ]; then
+                key_expired_json="$key_expired_raw"
+            fi
+        else
+            status="error"
+        fi
+    fi
+
+    jq -n \
+        --arg checked_at "$checked_at" \
+        --arg status "$status" \
+        --arg key_expires_utc "$key_expiry_utc" \
+        --argjson key_days "$key_days_json" \
+        --argjson key_expired "$key_expired_json" \
+        '{
+            checked_at: $checked_at,
+            tailscale_status: $status,
+            tailscale_key_days: $key_days,
+            tailscale_key_expires_utc: (if $key_expires_utc == "" then null else $key_expires_utc end),
+            tailscale_key_expired: $key_expired
+        }'
+}
+
+refresh_apt_metric() {
+    local checked_at
+    local apt_update_days="null"
+    local apt_update_utc=""
+    local apt_upgrade_days="null"
+    local apt_upgrade_utc=""
+    local mtime_epoch
+    local now_epoch
+    local upgrade_end
+
+    checked_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    now_epoch=$(date +%s)
+
+    # Last apt update: mtime of the package lists cache file
+    local lists_cache="/var/cache/apt/pkgcache.bin"
+    if [ -f "$lists_cache" ]; then
+        mtime_epoch=$(stat -c %Y "$lists_cache" 2>/dev/null || echo "")
+        if [[ "$mtime_epoch" =~ ^[0-9]+$ ]]; then
+            apt_update_days=$(( (now_epoch - mtime_epoch) / 86400 ))
+            apt_update_utc=$(date -u -d "@$mtime_epoch" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+        fi
+    fi
+
+    # Last apt upgrade: End-Date following an Upgrade: line in history.log
+    local history_log="/var/log/apt/history.log"
+    if [ -f "$history_log" ]; then
+        upgrade_end=$(awk '
+            /^Upgrade:/ { found=1 }
+            /^End-Date:/ && found { last=$0; found=0 }
+            END { print last }
+        ' "$history_log" 2>/dev/null || echo "")
+        if [ -n "$upgrade_end" ]; then
+            local raw_date upg_epoch
+            raw_date=$(echo "$upgrade_end" | sed 's/^End-Date: //')
+            upg_epoch=$(date -d "$raw_date" +%s 2>/dev/null || echo "")
+            if [[ "$upg_epoch" =~ ^[0-9]+$ ]]; then
+                apt_upgrade_days=$(( (now_epoch - upg_epoch) / 86400 ))
+                apt_upgrade_utc=$(date -u -d "@$upg_epoch" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+            fi
+        fi
+    fi
+
+    jq -n \
+        --arg checked_at "$checked_at" \
+        --argjson apt_update_days "$apt_update_days" \
+        --arg apt_update_utc "$apt_update_utc" \
+        --argjson apt_upgrade_days "$apt_upgrade_days" \
+        --arg apt_upgrade_utc "$apt_upgrade_utc" \
+        '{
+            checked_at: $checked_at,
+            apt_update_days: $apt_update_days,
+            apt_update_utc: (if $apt_update_utc == "" then null else $apt_update_utc end),
+            apt_upgrade_days: $apt_upgrade_days,
+            apt_upgrade_utc: (if $apt_upgrade_utc == "" then null else $apt_upgrade_utc end)
+        }'
+}
+
+refresh_firmware_metric() {
+    local checked_at
+    local firmware_age_days="null"
+    local firmware_date_utc=""
+    local fw_raw fw_epoch now_epoch
+
+    checked_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    now_epoch=$(date +%s)
+
+    # Pi firmware version date from vcgencmd
+    if command -v vcgencmd &>/dev/null; then
+        fw_raw=$(vcgencmd version 2>/dev/null | head -1 || echo "")
+        if [ -n "$fw_raw" ]; then
+            fw_epoch=$(date -d "$fw_raw" +%s 2>/dev/null || echo "")
+            if [[ "$fw_epoch" =~ ^[0-9]+$ ]]; then
+                firmware_age_days=$(( (now_epoch - fw_epoch) / 86400 ))
+                firmware_date_utc=$(date -u -d "@$fw_epoch" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+            fi
+        fi
+    fi
+
+    jq -n \
+        --arg checked_at "$checked_at" \
+        --argjson firmware_age_days "$firmware_age_days" \
+        --arg firmware_date_utc "$firmware_date_utc" \
+        '{
+            checked_at: $checked_at,
+            firmware_age_days: $firmware_age_days,
+            firmware_date_utc: (if $firmware_date_utc == "" then null else $firmware_date_utc end)
+        }'
+}
 
 get_hosts_ip() {
     local hostname="$1"
@@ -40,6 +270,7 @@ get_mac_for_ip() {
 
 # Ensure cache directory exists
 mkdir -p "$CACHE_DIR"
+mkdir -p "$SLOW_CACHE_DIR"
 
 # Prevent overlapping runs
 exec 200>"$LOCK"
@@ -140,18 +371,91 @@ fi
 
 [ -z "$HDMI_STATE" ] && HDMI_STATE="unknown"
 
-# TLS certificate expiry (days remaining; -1 = unavailable)
-CERT_DAYS=-1
-CERT_EXPIRY_UTC=""
-CERT_PATH="/etc/church-monitoring/ssl/agent.crt"
-if [ -f "$CERT_PATH" ]; then
-    EXP_RAW=$(openssl x509 -enddate -noout -in "$CERT_PATH" 2>/dev/null | cut -d= -f2 || echo "")
-    if [ -n "$EXP_RAW" ]; then
-        CERT_EXPIRY_UTC=$(date -u -d "$EXP_RAW" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
-        EXP_EPOCH=$(date -d "$EXP_RAW" +%s 2>/dev/null || echo "0")
-        NOW_EPOCH=$(date +%s)
-        CERT_DAYS=$(( (EXP_EPOCH - NOW_EPOCH) / 86400 ))
-    fi
+# Slow metrics (cached independently with longer TTLs)
+CERT_TTL_SEC=$(get_config_ttl "cert_expiry" "$DEFAULT_SLOW_TTL")
+TAILSCALE_TTL_SEC=$(get_config_ttl "tailscale_key_expiry" "$DEFAULT_SLOW_TTL")
+
+CERT_METRIC_JSON=$(load_slow_metric "cert-expiry" "$CERT_TTL_SEC" refresh_tls_cert_metric || echo "{}")
+TAILSCALE_METRIC_JSON=$(load_slow_metric "tailscale-key-expiry" "$TAILSCALE_TTL_SEC" refresh_tailscale_metric || echo "{}")
+
+CERT_DAYS=$(echo "$CERT_METRIC_JSON" | jq -r '.cert_days // -1')
+CERT_EXPIRY_UTC=$(echo "$CERT_METRIC_JSON" | jq -r '.cert_expires_utc // ""')
+CERT_CHECKED_UTC=$(echo "$CERT_METRIC_JSON" | jq -r '.checked_at // ""')
+
+TAILSCALE_STATUS=$(echo "$TAILSCALE_METRIC_JSON" | jq -r '.tailscale_status // "unavailable"')
+TAILSCALE_KEY_DAYS=$(echo "$TAILSCALE_METRIC_JSON" | jq -r '.tailscale_key_days // -1')
+TAILSCALE_KEY_EXPIRES_UTC=$(echo "$TAILSCALE_METRIC_JSON" | jq -r '.tailscale_key_expires_utc // ""')
+TAILSCALE_KEY_EXPIRED=$(echo "$TAILSCALE_METRIC_JSON" | jq -r '.tailscale_key_expired // ""')
+TAILSCALE_CHECKED_UTC=$(echo "$TAILSCALE_METRIC_JSON" | jq -r '.checked_at // ""')
+
+APT_TTL_SEC=$(get_config_ttl "apt" "$DEFAULT_SLOW_TTL")
+FIRMWARE_TTL_SEC=$(get_config_ttl "firmware_age" "86400")
+
+APT_METRIC_JSON=$(load_slow_metric "apt" "$APT_TTL_SEC" refresh_apt_metric || echo "{}")
+FIRMWARE_METRIC_JSON=$(load_slow_metric "firmware-age" "$FIRMWARE_TTL_SEC" refresh_firmware_metric || echo "{}")
+
+APT_UPDATE_DAYS=$(echo "$APT_METRIC_JSON" | jq -r '.apt_update_days // -1')
+APT_UPDATE_UTC=$(echo "$APT_METRIC_JSON" | jq -r '.apt_update_utc // ""')
+APT_UPGRADE_DAYS=$(echo "$APT_METRIC_JSON" | jq -r '.apt_upgrade_days // -1')
+APT_UPGRADE_UTC=$(echo "$APT_METRIC_JSON" | jq -r '.apt_upgrade_utc // ""')
+APT_CHECKED_UTC=$(echo "$APT_METRIC_JSON" | jq -r '.checked_at // ""')
+
+FIRMWARE_AGE_DAYS=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.firmware_age_days // -1')
+FIRMWARE_DATE_UTC=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.firmware_date_utc // ""')
+FIRMWARE_CHECKED_UTC=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.checked_at // ""')
+
+# Build normalized slow_metrics array
+# Each entry: {id, label, value, status, tooltip}
+# status: ok (gray) | warn (orange) | error (red) | unavailable (hidden)
+SLOW_METRICS_JSON="[]"
+_m() {
+    SLOW_METRICS_JSON=$(echo "$SLOW_METRICS_JSON" | jq \
+        --arg id "$1" --arg label "$2" --arg value "$3" \
+        --arg status "$4" --arg tooltip "$5" \
+        '. + [{id:$id, label:$label, value:$value, status:$status, tooltip:$tooltip}]')
+}
+
+if [ "$CERT_DAYS" != "-1" ] && [[ "$CERT_DAYS" =~ ^-?[0-9]+$ ]]; then
+    if [ "$CERT_DAYS" -lt 14 ]; then _S="error"
+    elif [ "$CERT_DAYS" -lt 30 ]; then _S="warn"
+    else _S="ok"; fi
+    _m "cert_expiry" "Cert" "${CERT_DAYS}d" "$_S" \
+        "Days until TLS cert expires. Expires: ${CERT_EXPIRY_UTC}. Last checked: ${CERT_CHECKED_UTC}"
+fi
+
+if [ "$TAILSCALE_STATUS" = "ok" ] && [ "$TAILSCALE_KEY_DAYS" != "-1" ] && [[ "$TAILSCALE_KEY_DAYS" =~ ^-?[0-9]+$ ]]; then
+    if [ "$TAILSCALE_KEY_DAYS" -lt 3 ] || [ "$TAILSCALE_KEY_EXPIRED" = "true" ]; then _S="error"
+    elif [ "$TAILSCALE_KEY_DAYS" -lt 14 ]; then _S="warn"
+    else _S="ok"; fi
+    _m "tailscale_key" "Tailscale" "${TAILSCALE_KEY_DAYS}d" "$_S" \
+        "Days until Tailscale key expires. Expires: ${TAILSCALE_KEY_EXPIRES_UTC}. Expired: ${TAILSCALE_KEY_EXPIRED}. Last checked: ${TAILSCALE_CHECKED_UTC}"
+elif [ "$TAILSCALE_STATUS" = "error" ]; then
+    _m "tailscale_key" "Tailscale" "error" "error" \
+        "tailscale status command failed. Last checked: ${TAILSCALE_CHECKED_UTC}"
+fi
+
+if [ "$APT_UPDATE_DAYS" != "-1" ] && [[ "$APT_UPDATE_DAYS" =~ ^[0-9]+$ ]]; then
+    if [ "$APT_UPDATE_DAYS" -ge 30 ]; then _S="error"
+    elif [ "$APT_UPDATE_DAYS" -ge 14 ]; then _S="warn"
+    else _S="ok"; fi
+    _m "apt_update" "Updated" "${APT_UPDATE_DAYS}d" "$_S" \
+        "Days since apt update. Last: ${APT_UPDATE_UTC}. Last checked: ${APT_CHECKED_UTC}"
+fi
+
+if [ "$APT_UPGRADE_DAYS" != "-1" ] && [[ "$APT_UPGRADE_DAYS" =~ ^[0-9]+$ ]]; then
+    if [ "$APT_UPGRADE_DAYS" -ge 90 ]; then _S="error"
+    elif [ "$APT_UPGRADE_DAYS" -ge 30 ]; then _S="warn"
+    else _S="ok"; fi
+    _m "apt_upgrade" "Upgraded" "${APT_UPGRADE_DAYS}d" "$_S" \
+        "Days since apt upgrade. Last: ${APT_UPGRADE_UTC}. Last checked: ${APT_CHECKED_UTC}"
+fi
+
+if [ "$FIRMWARE_AGE_DAYS" != "-1" ] && [[ "$FIRMWARE_AGE_DAYS" =~ ^[0-9]+$ ]]; then
+    if [ "$FIRMWARE_AGE_DAYS" -ge 365 ]; then _S="error"
+    elif [ "$FIRMWARE_AGE_DAYS" -ge 180 ]; then _S="warn"
+    else _S="ok"; fi
+    _m "firmware_age" "Firmware" "${FIRMWARE_AGE_DAYS}d" "$_S" \
+        "Age of Pi firmware build. Built: ${FIRMWARE_DATE_UTC}. Last checked: ${FIRMWARE_CHECKED_UTC}"
 fi
 
 # Church-calendar image folder check (configurable via .calendar_images_path in client-config.json)
@@ -280,8 +584,7 @@ jq -n \
     --arg hdmi "$HDMI_STATE" \
     --arg hdmi_source "$HDMI_SOURCE" \
     --arg hdmi_raw "$HDMI_RAW" \
-    --argjson cert_days "$CERT_DAYS" \
-    --arg cert_expiry_utc "$CERT_EXPIRY_UTC" \
+    --argjson slow_metrics "$SLOW_METRICS_JSON" \
     --argjson cal_img_total "$CAL_IMG_TOTAL" \
     --argjson cal_img_stale "$CAL_IMG_STALE" \
     --argjson temp "$TEMP" \
@@ -299,8 +602,7 @@ jq -n \
         hdmi: (if $hdmi == "" then null else $hdmi end),
         hdmi_source: (if $hdmi_source == "" then null else $hdmi_source end),
         hdmi_raw: (if $hdmi_raw == "" then null else $hdmi_raw end),
-        cert_days: (if $cert_days == -1 then null else $cert_days end),
-        cert_expires_utc: (if $cert_expiry_utc == "" then null else $cert_expiry_utc end),
+        slow_metrics: $slow_metrics,
         calendar_images: (if $cal_img_total == -1 then null else {total: $cal_img_total, stale: $cal_img_stale} end),
         services: $services,
         cec_enabled: $cec
