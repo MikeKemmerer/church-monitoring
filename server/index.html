@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Church Monitoring</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231a1a2e'/%3E%3Cpath d='M4 18h6l3-10 5 20 3-10h7' stroke='%2300d97e' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:16px}
@@ -125,6 +126,8 @@ function ago(ts) {
 function statusClass(s) {
     if (!s) return 's-unknown';
     if (s === 'active' || s.indexOf('running') === 0) return 's-active';
+    if (s === 'ok') return 's-active';
+    if (s === 'fail') return 's-inactive';
     if (s === 'inactive' || s === 'not running') return 's-inactive';
     return 's-unknown';
 }
@@ -245,8 +248,12 @@ function renderCard(data) {
     if (data.services && data.services.length) {
         html += '<div class="svc-list">';
         data.services.forEach(function(svc) {
+            var detailHtml = '';
+            if (svc.detail) {
+                detailHtml = '<div class="svc-type" style="margin-top:2px;max-width:100%;overflow-wrap:anywhere;">' + escapeHtml(svc.detail) + '</div>';
+            }
             html += '<div class="svc-row"><span class="svc-name">' + escapeHtml(svc.name) +
-                '<span class="svc-type">' + svc.type + '</span></span>' +
+                '<span class="svc-type">' + svc.type + '</span>' + detailHtml + '</span>' +
                 '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
             if (svc.type === 'systemd') {
                 html += '<button class="btn-restart" onclick="restartService(\'' + escapeAttr(name) + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb;</button>';

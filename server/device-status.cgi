@@ -14,6 +14,35 @@ CACHE_DIR="/var/cache/church-monitoring"
 CACHE_FILE="$CACHE_DIR/device-status.json"
 CACHE_MAX_AGE=60
 
+get_hosts_ip() {
+    local hostname="$1"
+    awk -v host="$hostname" '
+        $1 !~ /^#/ {
+            for (i = 2; i <= NF; i++) {
+                if ($i == host) {
+                    print $1
+                    exit
+                }
+            }
+        }
+    ' /etc/hosts 2>/dev/null
+}
+
+get_mac_for_ip() {
+    local ip="$1"
+    local mac=""
+
+    if command -v ip >/dev/null 2>&1; then
+        mac=$(ip neigh show "$ip" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") {print $(i+1); exit}}')
+    fi
+
+    if [ -z "$mac" ] && command -v arp >/dev/null 2>&1; then
+        mac=$(arp -n "$ip" 2>/dev/null | awk '/ at / {for (i = 1; i <= NF; i++) if ($i == "at") {print $(i+1); exit}}')
+    fi
+
+    echo "$mac" | tr 'A-F' 'a-f'
+}
+
 if [ ! -f "$CONFIG" ]; then
     echo '{}'
     exit 0
@@ -49,10 +78,33 @@ while IFS= read -r device; do
     NAME=$(echo "$device" | jq -r '.name')
     HOST=$(echo "$device" | jq -r '.host')
     CHECK=$(echo "$device" | jq -r '.check // empty')
+    EXPECTED_MAC=$(echo "$device" | jq -r '.expected_mac // empty' | tr 'A-F' 'a-f')
 
     [ -z "$CHECK" ] && continue
 
     STATUS="offline"
+
+    # Optional identity check: verify the resolved host IP maps to the expected MAC.
+    if [ -n "$EXPECTED_MAC" ]; then
+        RESOLVED_IP=""
+        if [[ "$HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            RESOLVED_IP="$HOST"
+        else
+            RESOLVED_IP=$(get_hosts_ip "$HOST")
+        fi
+
+        if [ -z "$RESOLVED_IP" ]; then
+            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" '. + {($name): $status}')
+            continue
+        fi
+
+        ping -c 1 -W 1 "$RESOLVED_IP" >/dev/null 2>&1 || true
+        RESOLVED_MAC=$(get_mac_for_ip "$RESOLVED_IP")
+        if [ "$RESOLVED_MAC" != "$EXPECTED_MAC" ]; then
+            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" '. + {($name): $status}')
+            continue
+        fi
+    fi
 
     case "$CHECK" in
         tcp:*)

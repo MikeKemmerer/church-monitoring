@@ -7,6 +7,11 @@
         "apt": 43200,
         "firmware_age": 86400
     },
+    "encoder_identity_check": {
+        "host": "server",
+        "expected_mac": "aa:bb:cc:dd:ee:ff",
+        "port": 8080
+    },
     "monitors": [
         {"name": "apache2", "type": "systemd"},
         {"name": "church-calendar", "type": "systemd"},
