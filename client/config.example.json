@@ -5,7 +5,8 @@
         "cert_expiry": 43200,
         "tailscale_key_expiry": 43200,
         "apt": 43200,
-        "firmware_age": 86400
+        "firmware_age": 86400,
+        "backup_age": 3600
     },
     "encoder_identity_check": {
         "host": "server",
@@ -19,5 +20,72 @@
         {"name": "vlc", "type": "process", "match": "vlc -f http://server:8080/stream"},
         {"name": "midori", "type": "process", "match": "midori|x-www-browser"}
     ],
-    "cec_enabled": false
+    "cec_enabled": false,
+    "backup": {
+        "dir": "/var/backups/church-monitoring",
+        "keep": 5,
+        "warn_days": 7,
+        "error_days": 14
+    },
+    "apps": [
+        {
+            "name": "church-monitoring",
+            "repo": "https://github.com/MikeKemmerer/church-monitoring.git",
+            "branch": "master",
+            "installer_cmd": "sudo ./client/install.sh --renew",
+            "apt": ["apache2", "openssl", "jq", "curl", "bc", "scrot"],
+            "pip": [],
+            "config_paths": [
+                "/etc/church-monitoring/client-config.json"
+            ],
+            "service_names": ["apache2"],
+            "order": 90
+        },
+        {
+            "name": "cameras",
+            "repo": "https://github.com/MikeKemmerer/cameras.git",
+            "branch": "master",
+            "installer_cmd": "sudo ./install.sh",
+            "apt": ["apache2", "php", "php-zip", "php-curl", "php-xml", "ffmpeg"],
+            "pip": [],
+            "config_paths": [
+                "/var/www/html/cameracontrol/config.json",
+                "/var/www/html/cameracontrol/presets.json",
+                "/var/www/html/cameracontrol/sequences.json",
+                "/var/www/html/cameracontrol/images",
+                "/var/www/html/multicamera/config/cameras.json",
+                "/var/www/html/multicamera/config/onvif-credentials.php",
+                "/var/www/html/multicamera/thumbnails",
+                "/etc/apache2/sites-available/000-default.conf"
+            ],
+            "service_names": ["apache2"],
+            "order": 20
+        },
+        {
+            "name": "church-calendar",
+            "repo": "https://github.com/MikeKemmerer/church-calendar.git",
+            "branch": "master",
+            "installer_cmd": "sudo ./install.sh",
+            "apt": ["python3", "python3-pip"],
+            "pip": ["pillow", "python-dateutil", "requests", "lxml"],
+            "config_paths": [
+                "/home/pi/church-calendar/config.json"
+            ],
+            "service_names": ["church-calendar.service"],
+            "order": 40
+        },
+        {
+            "name": "videokiosk2",
+            "repo": "https://github.com/MikeKemmerer/videokiosk2.git",
+            "branch": "master",
+            "installer_cmd": "sudo bash videokiosk2-installer.sh",
+            "apt": ["vlc", "midori", "x11-apps", "curl", "python3", "cec-utils"],
+            "pip": [],
+            "config_paths": [
+                "/home/pi/local.conf"
+            ],
+            "service_names": ["videokiosk2.service", "videokiosk2-scheduler.service"],
+            "order": 50
+        }
+    ]
 }

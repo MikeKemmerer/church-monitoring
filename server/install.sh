@@ -173,6 +173,8 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/restart-service.cgi" "$CGI_DIR/restart-service.cgi"
     cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
     cp "$SCRIPT_DIR/host-action.cgi" "$CGI_DIR/host-action.cgi"
+    cp "$SCRIPT_DIR/backup.cgi" "$CGI_DIR/backup.cgi"
+    cp "$SCRIPT_DIR/backup-download.cgi" "$CGI_DIR/backup-download.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
 

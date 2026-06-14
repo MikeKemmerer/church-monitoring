@@ -50,6 +50,19 @@ button:disabled{opacity:0.5;cursor:default}
 .btn-mode{background:#1a5a3a;border-color:#1e6e44}.btn-mode:hover{background:#1e6e44}
 .confirm-inline{display:inline-flex;align-items:center;gap:5px;background:#1e1e1e;border:1px solid #f39c12;border-radius:4px;padding:3px 8px;font-size:11px;color:#f39c12;flex-wrap:wrap;margin-top:4px}
 .confirm-inline button{padding:2px 7px;font-size:11px}
+.card-head-left{display:flex;align-items:center;gap:8px;min-width:0}
+.menu-wrap{position:relative;flex-shrink:0}
+.menu-btn{background:#0f3460;border:1px solid #1a4a7a;border-radius:4px;padding:2px 8px;font-size:15px;line-height:1;color:#e0e0e0}
+.menu-btn:hover{background:#1a4a7a}
+.menu-dropdown{display:none;position:absolute;left:0;top:100%;margin-top:4px;background:#0a1a35;border:1px solid #1a4a7a;border-radius:6px;padding:4px;min-width:200px;z-index:50;box-shadow:0 6px 18px rgba(0,0,0,0.5)}
+.menu-dropdown.open{display:block}
+.menu-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:4px;padding:7px 10px;font-size:13px;color:#e0e0e0;white-space:nowrap}
+.menu-item:hover{background:#1a4a7a}
+.menu-item.danger:hover{background:#8b1010}
+.menu-sep{height:1px;background:#1a4a7a;margin:4px 2px;opacity:0.5}
+.menu-label{font-size:10px;color:#7f8c8d;text-transform:uppercase;padding:5px 10px 2px;letter-spacing:0.5px}
+.menu-sub{display:none;padding-left:10px;border-left:2px solid #1a4a7a;margin-left:6px}
+.menu-sub.open{display:block}
 .badge{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:3px;font-weight:600;vertical-align:middle}
 .badge-warn{background:#f39c12;color:#000}
 .badge-err{background:#c0392b;color:#fff}
@@ -166,6 +179,46 @@ function hostHealth(data) {
     return bad ? 'warn' : 'ok';
 }
 
+function renderMenu(name, data) {
+    var n = escapeAttr(name);
+    var m = '<div class="menu-wrap">';
+    m += '<button class="menu-btn" title="Actions" onclick="toggleMenu(event,\'' + n + '\')">&#9776;</button>';
+    m += '<div class="menu-dropdown" id="menu-' + n + '">';
+
+    // Backup actions (always available)
+    m += '<div class="menu-label">Backup</div>';
+    m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
+    m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
+
+    // Restart entries for each monitored systemd service
+    var systemd = (data.services || []).filter(function(svc) { return svc.type === 'systemd'; });
+    if (systemd.length) {
+        m += '<div class="menu-sep"></div><div class="menu-label">Restart service</div>';
+        systemd.forEach(function(svc) {
+            m += '<button class="menu-item" onclick="restartServiceMenu(\'' + n + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb; ' + escapeHtml(svc.name) + '</button>';
+        });
+    }
+
+    // CEC submenu (if enabled on this client)
+    if (data.cec_enabled) {
+        m += '<div class="menu-sep"></div>';
+        m += '<button class="menu-item" onclick="toggleSub(event,\'' + n + '\')">&#128250; TV (CEC) &#9656;</button>';
+        m += '<div class="menu-sub" id="sub-' + n + '">';
+        m += '<button class="menu-item" onclick="checkCecMenu(\'' + n + '\')">Check status</button>';
+        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'on\')">&#9654; Power on</button>';
+        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'standby\')">&#9724; Standby</button>';
+        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'active\')">&#127909; Active input</button>';
+        m += '</div>';
+    }
+
+    // Reboot (destructive)
+    m += '<div class="menu-sep"></div>';
+    m += '<button class="menu-item danger" onclick="rebootHostMenu(\'' + n + '\')">&#x23FB; Reboot host</button>';
+
+    m += '</div></div>';
+    return m;
+}
+
 function renderCard(data) {
     var name = data.client_name || data.hostname || 'unknown';
     var health = hostHealth(data);
@@ -176,8 +229,9 @@ function renderCard(data) {
             '<div style="color:#c0392b;font-size:13px;">' + escapeHtml(data.error) + '</div></div>';
     }
 
-    var html = '<div class="card"><div class="card-head"><span class="card-name">' +
-        escapeHtml(name) + '</span><span class="dot ' + health + '"></span></div>';
+    var html = '<div class="card"><div class="card-head"><div class="card-head-left">' +
+        renderMenu(name, data) +
+        '<span class="card-name">' + escapeHtml(name) + '</span></div><span class="dot ' + health + '"></span></div>';
 
     html += '<div class="card-body">';
 
@@ -255,9 +309,6 @@ function renderCard(data) {
             html += '<div class="svc-row"><span class="svc-name">' + escapeHtml(svc.name) +
                 '<span class="svc-type">' + svc.type + '</span>' + detailHtml + '</span>' +
                 '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
-            if (svc.type === 'systemd') {
-                html += '<button class="btn-restart" onclick="restartService(\'' + escapeAttr(name) + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb;</button>';
-            }
             html += '</div>';
         });
         html += '</div>';
@@ -266,14 +317,6 @@ function renderCard(data) {
     // Actions
     html += '<div class="actions">';
     html += '<button onclick="refreshOne(\'' + escapeAttr(name) + '\')">&#x21bb; Refresh</button>';
-    if (data.cec_enabled) {
-        html += '<span class="btn-group">';
-        html += '<button onclick="checkCec(\'' + escapeAttr(name) + '\')">&#128250; Check</button>';
-        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'on\')">&#9654; On</button>';
-        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'standby\')">&#9724; Standby</button>';
-        html += '<button onclick="cecControl(\'' + escapeAttr(name) + '\',\'active\')">&#127909; Active</button>';
-        html += '</span>';
-    }
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
     // Mode switch (show if kiosk processes are monitored)
     var hasVlc = false, hasMidori = false;
@@ -287,7 +330,6 @@ function renderCard(data) {
         html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
         html += '</span>';
     }
-    html += '<button class="btn-danger" onclick="rebootHost(\'' + escapeAttr(name) + '\',this)">&#x23FB; Reboot</button>';
     html += '</div>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
 
@@ -482,6 +524,65 @@ function captureScreen(name) {
         .catch(function(err) {
             el.innerHTML = '<small>&#9888; Failed</small>';
         });
+}
+
+function toggleMenu(ev, name) {
+    ev.stopPropagation();
+    var menu = document.getElementById('menu-' + name);
+    if (!menu) return;
+    var wasOpen = menu.classList.contains('open');
+    closeMenus();
+    if (!wasOpen) menu.classList.add('open');
+}
+
+function toggleSub(ev, name) {
+    ev.stopPropagation();
+    var sub = document.getElementById('sub-' + name);
+    if (sub) sub.classList.toggle('open');
+}
+
+function closeMenus() {
+    var opens = document.querySelectorAll('.menu-dropdown.open, .menu-sub.open');
+    for (var i = 0; i < opens.length; i++) opens[i].classList.remove('open');
+}
+document.addEventListener('click', closeMenus);
+
+// Menu wrappers: close the dropdown, then run the existing action.
+function restartServiceMenu(host, service) { closeMenus(); restartService(host, service); }
+function checkCecMenu(host) { closeMenus(); checkCec(host); }
+function cecControlMenu(host, action) { closeMenus(); cecControl(host, action); }
+function rebootHostMenu(host) {
+    closeMenus();
+    if (!confirm('Reboot ' + host + '? The host will be unavailable for ~20s.')) return;
+    doReboot(host);
+}
+
+function backup(host) {
+    closeMenus();
+    if (!confirm('Create a configuration backup on ' + host + '?')) return;
+    fetchJson('/cgi-bin/backup.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error || data.ok === false) {
+                alert('Backup failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            var sizeKb = data.size_bytes ? Math.round(data.size_bytes / 1024) : 0;
+            var apps = (data.apps && data.apps.length) ? data.apps.join(', ') : 'none';
+            var msg = 'Backup created on ' + host + '.\nApps: ' + apps + '\nSize: ' + sizeKb + ' KB';
+            if (data.paths_skipped && data.paths_skipped.length) {
+                msg += '\nSkipped ' + data.paths_skipped.length + ' path(s).';
+            }
+            alert(msg);
+            refreshOne(host);
+        })
+        .catch(function(err) { alert('Backup request failed: ' + err); });
+}
+
+function downloadBackup(host) {
+    closeMenus();
+    // Stream the archive via a hidden iframe so the browser handles the download
+    // (and any JSON error is shown in a new context rather than replacing the page).
+    window.location.href = '/cgi-bin/backup-download.cgi?host=' + encodeURIComponent(host);
 }
 
 function restartService(host, service) {

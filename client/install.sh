@@ -352,11 +352,23 @@ fi
 
 # Write client config
 if [[ $SKIP_CONFIG -eq 0 ]]; then
+    # Seed the `apps` array and default backup settings from the bundled example
+    # so DR backup/restore knows what is installed on this host. The operator can
+    # tune these afterwards in client-config.json.
+    SEED_APPS="[]"
+    SEED_BACKUP='{"dir":"/var/backups/church-monitoring","keep":5,"warn_days":7,"error_days":14}'
+    if [[ -f "$SCRIPT_DIR/config.example.json" ]]; then
+        SEED_APPS=$(jq -c '.apps // []' "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "[]")
+        SEED_BACKUP=$(jq -c ".backup // $SEED_BACKUP" "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "$SEED_BACKUP")
+    fi
+
     jq -n \
         --arg hostname "$CLIENT_HOSTNAME" \
         --argjson monitors "$MONITORS" \
         --argjson cec "$CEC_ENABLED" \
-        '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec}' \
+        --argjson backup "$SEED_BACKUP" \
+        --argjson apps "$SEED_APPS" \
+        '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec, backup:$backup, apps:$apps}' \
         > "$CONF_DIR/client-config.json"
     chmod 644 "$CONF_DIR/client-config.json"
     echo "  Configuration saved."
@@ -376,6 +388,8 @@ REQUIRED_CGI=(
     restart-service.cgi
     reboot.cgi
     mode-switch.cgi
+    backup.cgi
+    backup-download.cgi
 )
 
 for CGI_FILE in "${REQUIRED_CGI[@]}"; do
@@ -424,6 +438,25 @@ chmod 440 /etc/sudoers.d/church-monitoring-restart
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
+
+# Install DR backup + restore scripts
+cp "$SCRIPT_DIR/backup.sh" /usr/local/bin/church-monitoring-backup
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-backup
+chmod 755 /usr/local/bin/church-monitoring-backup
+if [ -f "$SCRIPT_DIR/restore.sh" ]; then
+    cp "$SCRIPT_DIR/restore.sh" /usr/local/bin/church-monitoring-restore
+    sed -i 's/\r$//' /usr/local/bin/church-monitoring-restore
+    chmod 755 /usr/local/bin/church-monitoring-restore
+fi
+
+# Backup archive directory (root-only)
+mkdir -p /var/backups/church-monitoring
+chmod 700 /var/backups/church-monitoring
+
+# Allow www-data to trigger a backup as root
+echo "www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-backup" \
+    > /etc/sudoers.d/church-monitoring-backup
+chmod 440 /etc/sudoers.d/church-monitoring-backup
 
 # Install host-control helper scripts
 for HELPER in church-monitoring-reboot-host church-monitoring-mode-midori; do
