@@ -111,7 +111,10 @@ while IFS= read -r app; do
         # it back exactly where it came from.
         DEST="$PAYLOAD${cfg_path}"
         mkdir -p "$(dirname "$DEST")"
-        cp -a "$cfg_path" "$DEST"
+        if ! cp -a "$cfg_path" "$DEST" 2>/dev/null; then
+            PATHS_SKIPPED=$(echo "$PATHS_SKIPPED" | jq --arg p "$cfg_path" --arg r "copy_failed" '. + [{path: $p, reason: $r}]')
+            continue
+        fi
         INCLUDED_PATHS=$(echo "$INCLUDED_PATHS" | jq --arg p "$cfg_path" '. + [$p]')
     done < <(echo "$app" | jq -r '.config_paths[]? // empty')
 
