@@ -580,9 +580,10 @@ function backup(host) {
 
 function downloadBackup(host) {
     closeMenus();
-    // Stream the archive via a hidden iframe so the browser handles the download
-    // (and any JSON error is shown in a new context rather than replacing the page).
-    window.location.href = '/cgi-bin/backup-download.cgi?host=' + encodeURIComponent(host);
+    // Open in a new tab so the dashboard stays loaded, but JSON errors are still visible.
+    var url = '/cgi-bin/backup-download.cgi?host=' + encodeURIComponent(host);
+    var w = window.open(url, '_blank');
+    if (!w) window.location.href = url;
 }
 
 function restartService(host, service) {
