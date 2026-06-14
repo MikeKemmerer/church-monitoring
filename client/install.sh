@@ -372,6 +372,23 @@ if [[ $SKIP_CONFIG -eq 0 ]]; then
         > "$CONF_DIR/client-config.json"
     chmod 644 "$CONF_DIR/client-config.json"
     echo "  Configuration saved."
+elif [[ -f "$CONF_DIR/client-config.json" ]]; then
+    # Keeping existing config: merge in backup/apps defaults if they are absent
+    # so that DR backup/restore works immediately after an update.
+    DEFAULT_BACKUP='{"dir":"/var/backups/church-monitoring","keep":5,"warn_days":7,"error_days":14}'
+    DEFAULT_APPS="[]"
+    if [[ -f "$SCRIPT_DIR/config.example.json" ]]; then
+        DEFAULT_APPS=$(jq -c '.apps // []' "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "[]")
+        DEFAULT_BACKUP=$(jq -c ".backup // $DEFAULT_BACKUP" "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "$DEFAULT_BACKUP")
+    fi
+    UPDATED=$(jq \
+        --argjson dflt_backup "$DEFAULT_BACKUP" \
+        --argjson dflt_apps "$DEFAULT_APPS" \
+        'if .backup == null then . + {"backup": $dflt_backup} else . end
+         | if .apps == null then . + {"apps": $dflt_apps} else . end' \
+        "$CONF_DIR/client-config.json" 2>/dev/null || cat "$CONF_DIR/client-config.json")
+    echo "$UPDATED" > "$CONF_DIR/client-config.json"
+    echo "  Existing configuration kept; backup/apps defaults merged where absent."
 fi
 
 # ── Step 4: Install CGI scripts ──────────────────────────────────────

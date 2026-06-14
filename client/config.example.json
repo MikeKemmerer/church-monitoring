@@ -5,8 +5,7 @@
         "cert_expiry": 43200,
         "tailscale_key_expiry": 43200,
         "apt": 43200,
-        "firmware_age": 86400,
-        "backup_age": 3600
+        "firmware_age": 86400
     },
     "encoder_identity_check": {
         "host": "server",

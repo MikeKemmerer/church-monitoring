@@ -171,7 +171,13 @@ run_installer() {
     fi
     read -r -a cmd_parts <<< "$cmd"
     [[ ${#cmd_parts[@]} -eq 0 ]] && { echo "    ! empty installer_cmd"; return 1; }
-    echo "    installer: $cmd"
+    # Strip a leading 'sudo' when already running as root — sudo may not be
+    # installed on a minimal/fresh image, and we have all needed privileges.
+    if [[ "${cmd_parts[0]}" == "sudo" && "$EUID" -eq 0 ]]; then
+        cmd_parts=("${cmd_parts[@]:1}")
+        [[ ${#cmd_parts[@]} -eq 0 ]] && { echo "    ! installer_cmd is only 'sudo'"; return 1; }
+    fi
+    echo "    installer: ${cmd_parts[*]}"
     ( cd "$dest" && "${cmd_parts[@]}" )
 }
 
