@@ -29,8 +29,8 @@ command -v tar >/dev/null 2>&1 || emit_error "tar not installed"
 HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || echo "")
 [ -z "$HOSTNAME_VAL" ] && HOSTNAME_VAL=$(hostname)
 
-BACKUP_DIR=$(jq -r '.backup.dir // "/var/backups/church-monitoring"' "$CONFIG" 2>/dev/null)
-KEEP=$(jq -r '.backup.keep // 5' "$CONFIG" 2>/dev/null)
+BACKUP_DIR=$(jq -r '.backup.dir // "/var/backups/church-monitoring"' "$CONFIG" 2>/dev/null || echo "/var/backups/church-monitoring")
+KEEP=$(jq -r '.backup.keep // 5' "$CONFIG" 2>/dev/null || echo 5)
 [[ "$KEEP" =~ ^[0-9]+$ ]] || KEEP=5
 
 newest_archive() {
