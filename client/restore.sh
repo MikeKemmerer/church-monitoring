@@ -161,7 +161,11 @@ run_installer() {
     local -a cmd_parts=()
     cmd=$(echo "$app_json" | jq -r '.installer_cmd // empty')
     [[ -z "$cmd" ]] && { echo "    (no installer_cmd)"; return 0; }
-    if [[ "$cmd" =~ [\;\|\&\`\$\<\>] ]]; then
+    if [[ "$cmd" == *$'\n'* || "$cmd" == *$'\r'* ]]; then
+        echo "    ! unsafe installer_cmd rejected"
+        return 1
+    fi
+    if [[ "$cmd" =~ [\;\|\&\`\$\<\>] || "$cmd" =~ [\"\'] ]]; then
         echo "    ! unsafe installer_cmd rejected"
         return 1
     fi
