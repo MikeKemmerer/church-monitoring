@@ -453,9 +453,12 @@ fi
 mkdir -p /var/backups/church-monitoring
 chmod 700 /var/backups/church-monitoring
 
-# Allow www-data to trigger a backup as root
-echo "www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-backup" \
-    > /etc/sudoers.d/church-monitoring-backup
+# Allow www-data to trigger a backup as root (restrict arguments)
+cat > /etc/sudoers.d/church-monitoring-backup <<'SUDOEOF'
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-backup
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-backup --latest-path
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-backup --emit-latest
+SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-backup
 
 # Install host-control helper scripts
