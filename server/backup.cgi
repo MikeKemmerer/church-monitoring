@@ -40,8 +40,9 @@ PORT=$(echo "$CLIENT" | jq -r '.port')
 
 # Backups can take a little while (copying configs + tar); allow a longer budget.
 DATA=$(curl -s --connect-timeout 5 --max-time 120 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/backup.cgi" 2>/dev/null) || true
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --resolve "${TARGET_CLEAN}:${PORT}:${HOST}" \
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/backup.cgi" 2>/dev/null) || true
 
 if [ -z "$DATA" ]; then
     echo '{"error":"request to client timed out or failed"}'
