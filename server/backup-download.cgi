@@ -30,7 +30,7 @@ if [ ! -f "$CONFIG" ]; then
     json_error "server-config.json not found"
 fi
 
-CLIENT=$(jq -c --arg name "$TARGET_CLEAN" '.clients[] | select(.name == $name)' "$CONFIG" 2>/dev/null)
+CLIENT=$(jq -c --arg name "$TARGET_CLEAN" '.clients[] | select(.name == $name)' "$CONFIG" 2>/dev/null | head -1)
 if [ -z "$CLIENT" ]; then
     json_error "unknown client"
 fi

@@ -22,6 +22,8 @@ if [ -z "$LATEST_PATH" ]; then
     json_error "no backup archive found"
 fi
 FILENAME=$(basename "$LATEST_PATH")
+FILENAME=$(echo "$FILENAME" | tr -cd 'a-zA-Z0-9._-')
+[ -z "$FILENAME" ] && FILENAME="backup.tar.gz"
 
 echo "Content-Type: application/gzip"
 echo "Content-Disposition: attachment; filename=\"$FILENAME\""

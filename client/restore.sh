@@ -158,10 +158,17 @@ clone_repo() {
 
 run_installer() {
     local app_json="$1" dest="$2" cmd
+    local -a cmd_parts=()
     cmd=$(echo "$app_json" | jq -r '.installer_cmd // empty')
     [[ -z "$cmd" ]] && { echo "    (no installer_cmd)"; return 0; }
+    if [[ "$cmd" =~ [\;\|\&\`\$\<\>] ]]; then
+        echo "    ! unsafe installer_cmd rejected"
+        return 1
+    fi
+    read -r -a cmd_parts <<< "$cmd"
+    [[ ${#cmd_parts[@]} -eq 0 ]] && { echo "    ! empty installer_cmd"; return 1; }
     echo "    installer: $cmd"
-    ( cd "$dest" && bash -c "$cmd" )
+    ( cd "$dest" && "${cmd_parts[@]}" )
 }
 
 enable_services() {
@@ -214,7 +221,7 @@ while IFS= read -r app_json; do
         if run_installer "$app_json" "$dest"; then
             restore_configs "$app_json"
             echo "  Applying restored config (install.sh --update)."
-            ( cd "$dest" && bash -c "sudo ./client/install.sh --update" ) || echo "  ! --update failed"
+            ( cd "$dest" && sudo ./client/install.sh --update ) || echo "  ! --update failed"
             enable_services "$app_json"
             record "$name: restored + re-enrolled"
         else
