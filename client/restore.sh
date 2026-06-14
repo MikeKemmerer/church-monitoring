@@ -165,7 +165,7 @@ run_installer() {
         echo "    ! unsafe installer_cmd rejected"
         return 1
     fi
-    if [[ "$cmd" =~ [\;\|\&\`\$\<\>] || "$cmd" =~ [\"\'] ]]; then
+    if [[ "$cmd" =~ [\;\|\&\`\$\<\>\(\)] || "$cmd" =~ [\"\'] ]]; then
         echo "    ! unsafe installer_cmd rejected"
         return 1
     fi
