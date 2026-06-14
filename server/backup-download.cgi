@@ -44,9 +44,10 @@ cleanup() { rm -f "$TMPFILE" "$HEADERS"; }
 trap cleanup EXIT
 
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 120 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --resolve "${TARGET_CLEAN}:${PORT}:${HOST}" \
     -D "$HEADERS" -o "$TMPFILE" -w "%{http_code}" \
-    "https://${HOST}:${PORT}/cgi-bin/backup-download.cgi" 2>/dev/null) || true
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/backup-download.cgi" 2>/dev/null) || true
 
 if [ "$HTTP_CODE" != "200" ] || [ ! -s "$TMPFILE" ]; then
     json_error "backup archive unavailable"
