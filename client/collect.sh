@@ -404,6 +404,25 @@ FIRMWARE_AGE_DAYS=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.firmware_age_days // 
 FIRMWARE_DATE_UTC=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.firmware_date_utc // ""')
 FIRMWARE_CHECKED_UTC=$(echo "$FIRMWARE_METRIC_JSON" | jq -r '.checked_at // ""')
 
+# Backup age — days since the newest DR archive (cheap mtime check, no caching).
+BACKUP_DIR=$(jq -r '.backup.dir // "/var/backups/church-monitoring"' "$CONFIG" 2>/dev/null || echo "/var/backups/church-monitoring")
+BACKUP_WARN_DAYS=$(jq -r '.backup.warn_days // 7' "$CONFIG" 2>/dev/null || echo 7)
+BACKUP_ERROR_DAYS=$(jq -r '.backup.error_days // 14' "$CONFIG" 2>/dev/null || echo 14)
+[[ "$BACKUP_WARN_DAYS" =~ ^[0-9]+$ ]] || BACKUP_WARN_DAYS=7
+[[ "$BACKUP_ERROR_DAYS" =~ ^[0-9]+$ ]] || BACKUP_ERROR_DAYS=14
+BACKUP_AGE_DAYS=-1
+BACKUP_LATEST_UTC=""
+if [ -d "$BACKUP_DIR" ]; then
+    NEWEST_BACKUP=$(ls -1t "$BACKUP_DIR"/backup-*.tar.gz 2>/dev/null | head -1 || echo "")
+    if [ -n "$NEWEST_BACKUP" ] && [ -f "$NEWEST_BACKUP" ]; then
+        BK_EPOCH=$(stat -c %Y "$NEWEST_BACKUP" 2>/dev/null || echo "")
+        if [[ "$BK_EPOCH" =~ ^[0-9]+$ ]]; then
+            BACKUP_AGE_DAYS=$(( ( $(date +%s) - BK_EPOCH ) / 86400 ))
+            BACKUP_LATEST_UTC=$(date -u -d "@$BK_EPOCH" +"%Y-%m-%d %H:%M:%S UTC" 2>/dev/null || echo "")
+        fi
+    fi
+fi
+
 # Build normalized slow_metrics array
 # Each entry: {id, label, value, status, tooltip}
 # status: ok (gray) | warn (orange) | error (red) | unavailable (hidden)
@@ -456,6 +475,17 @@ if [ "$FIRMWARE_AGE_DAYS" != "-1" ] && [[ "$FIRMWARE_AGE_DAYS" =~ ^[0-9]+$ ]]; t
     else _S="ok"; fi
     _m "firmware_age" "Firmware" "${FIRMWARE_AGE_DAYS}d" "$_S" \
         "Age of Pi firmware build. Built: ${FIRMWARE_DATE_UTC}. Last checked: ${FIRMWARE_CHECKED_UTC}"
+fi
+
+if [ "$BACKUP_AGE_DAYS" != "-1" ] && [[ "$BACKUP_AGE_DAYS" =~ ^[0-9]+$ ]]; then
+    if [ "$BACKUP_AGE_DAYS" -ge "$BACKUP_ERROR_DAYS" ]; then _S="error"
+    elif [ "$BACKUP_AGE_DAYS" -ge "$BACKUP_WARN_DAYS" ]; then _S="warn"
+    else _S="ok"; fi
+    _m "backed_up" "Backup" "${BACKUP_AGE_DAYS}d" "$_S" \
+        "Days since last config backup. Latest: ${BACKUP_LATEST_UTC}"
+else
+    _m "backed_up" "Backup" "never" "error" \
+        "No config backup found in ${BACKUP_DIR}"
 fi
 
 # Church-calendar image folder check (configurable via .calendar_images_path in client-config.json)

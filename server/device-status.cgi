@@ -84,6 +84,15 @@ while IFS= read -r device; do
 
     STATUS="offline"
 
+    # For HTTP checks, expose a URL the dashboard can link to (opens in a new tab).
+    URL=""
+    case "$CHECK" in
+        http:*)
+            HTTP_PORT="${CHECK#http:}"
+            [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] && URL="http://${HOST}:${HTTP_PORT}/"
+            ;;
+    esac
+
     # Optional identity check: verify the resolved host IP maps to the expected MAC.
     if [ -n "$EXPECTED_MAC" ]; then
         RESOLVED_IP=""
@@ -94,14 +103,14 @@ while IFS= read -r device; do
         fi
 
         if [ -z "$RESOLVED_IP" ]; then
-            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" '. + {($name): $status}')
+            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" --arg url "$URL" '. + {($name): {status: $status, url: $url}}')
             continue
         fi
 
         ping -c 1 -W 1 "$RESOLVED_IP" >/dev/null 2>&1 || true
         RESOLVED_MAC=$(get_mac_for_ip "$RESOLVED_IP")
         if [ "$RESOLVED_MAC" != "$EXPECTED_MAC" ]; then
-            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" '. + {($name): $status}')
+            RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "offline" --arg url "$URL" '. + {($name): {status: $status, url: $url}}')
             continue
         fi
     fi
@@ -126,8 +135,8 @@ while IFS= read -r device; do
             ;;
     esac
 
-    RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "$STATUS" \
-        '. + {($name): $status}')
+    RESULT=$(echo "$RESULT" | jq --arg name "$NAME" --arg status "$STATUS" --arg url "$URL" \
+        '. + {($name): {status: $status, url: $url}}')
 done < <(jq -c '.devices[]' "$CONFIG" 2>/dev/null)
 
 echo "$RESULT" | jq . > "$CACHE_FILE" 2>/dev/null || true

@@ -9,10 +9,13 @@ echo ""
 CACHE="/var/cache/church-monitoring/status.json"
 COLLECTOR="/usr/local/bin/church-monitoring-collect"
 
-# Run fresh collection if requested
+# Run fresh collection if requested. Kick it off in the background and serve
+# the current cache immediately so the HTTP response never blocks on a slow
+# collection (which could otherwise exceed the server's fetch timeout). The
+# freshly collected data is served on the next request.
 if echo "$QUERY_STRING" | grep -q 'refresh=1'; then
     if [ -x "$COLLECTOR" ]; then
-        "$COLLECTOR" 2>/dev/null || true
+        "$COLLECTOR" >/dev/null 2>&1 &
     fi
 fi
 
