@@ -84,6 +84,9 @@ button:disabled{opacity:0.5;cursor:default}
 .dev-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
 .dev-card{background:#16213e;border-radius:6px;padding:10px 12px;border:1px solid #0f3460;display:flex;align-items:center;justify-content:space-between}
 .dev-card .card-name{font-size:14px;font-weight:600}
+.dev-card a.card-name{color:#4aa3df;text-decoration:none}
+.dev-card a.card-name:hover{text-decoration:underline}
+.ext-icon{font-size:11px;opacity:.7}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
 .screenshot-area{width:100%}
@@ -415,10 +418,16 @@ function fetchDeviceStatus() {
             var container = document.getElementById('devCards');
             var html = '';
             keys.forEach(function(name) {
-                var status = ds[name];
+                var entry = ds[name];
+                var status = (entry && typeof entry === 'object') ? entry.status : entry;
+                var url = (entry && typeof entry === 'object') ? entry.url : '';
                 var dotClass = status === 'online' ? 'online' : 'offline';
+                var nameHtml = url ?
+                    '<a class="card-name" href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' +
+                        escapeHtml(name) + ' <span class="ext-icon">&#8599;</span></a>' :
+                    '<span class="card-name">' + escapeHtml(name) + '</span>';
                 html += '<div class="dev-card">' +
-                    '<span class="card-name">' + escapeHtml(name) + '</span>' +
+                    nameHtml +
                     '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeAttr(name) + '"></span>' +
                     '<button style="margin-left:6px;padding:2px 6px;font-size:11px" onclick="refreshDevice(\'' + escapeAttr(name) + '\')">' +
                     '&#x21bb;</button></span></div>';
@@ -437,9 +446,11 @@ function refreshDevice(name) {
         .then(function(ds) {
             if (!ds || ds.error) return;
             for (var k in ds) {
+                var entry = ds[k];
+                var st = (entry && typeof entry === 'object') ? entry.status : entry;
                 var el = document.getElementById('dev-dot-' + k);
                 if (el) {
-                    el.className = 'dev-dot ' + (ds[k] === 'online' ? 'online' : 'offline');
+                    el.className = 'dev-dot ' + (st === 'online' ? 'online' : 'offline');
                     el.style.background = '';
                 }
             }
@@ -580,10 +591,14 @@ function backup(host) {
 
 function downloadBackup(host) {
     closeMenus();
-    // Open in a new tab so the dashboard stays loaded, but JSON errors are still visible.
-    var url = '/cgi-bin/backup-download.cgi?host=' + encodeURIComponent(host);
-    var w = window.open(url, '_blank');
-    if (!w) window.location.href = url;
+    // Open in a new tab so the dashboard stays loaded, but JSON errors are still visible.
+
+    var url = '/cgi-bin/backup-download.cgi?host=' + encodeURIComponent(host);
+
+    var w = window.open(url, '_blank');
+
+    if (!w) window.location.href = url;
+
 }
 
 function restartService(host, service) {
