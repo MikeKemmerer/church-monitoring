@@ -23,6 +23,13 @@ fi
 FORCE_REFRESH=0
 echo "$QUERY_STRING" | tr '&' '\n' | grep -q '^refresh=1$' && FORCE_REFRESH=1
 
+# Only ask agents to re-collect on an explicit force refresh. Agents collect
+# every 5 minutes via cron and cache the result, so normal polls serve that
+# cache (fast) instead of triggering a slow blocking collection that can
+# exceed the curl timeout and be reported as "unreachable".
+REFRESH_PARAM=""
+[ "$FORCE_REFRESH" -eq 1 ] && REFRESH_PARAM="?refresh=1"
+
 # Return cached result if fresh enough
 if [ "$FORCE_REFRESH" -eq 0 ] && [ -f "$CACHE_FILE" ]; then
     AGE=$(( $(date +%s) - $(stat -c %Y "$CACHE_FILE") ))
@@ -51,7 +58,7 @@ while IFS= read -r client; do
     (
         DATA=$(curl -s --connect-timeout 3 --max-time 8 \
             --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-            "https://${HOST}:${PORT}/cgi-bin/status.cgi?refresh=1" 2>/dev/null) || true
+            "https://${HOST}:${PORT}/cgi-bin/status.cgi${REFRESH_PARAM}" 2>/dev/null) || true
 
         if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
             DATA=$(jq -n --arg name "$NAME" '{"error":"unreachable","hostname":$name}')
