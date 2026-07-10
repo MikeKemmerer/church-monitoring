@@ -50,6 +50,9 @@ button:disabled{opacity:0.5;cursor:default}
 .btn-mode{background:#1a5a3a;border-color:#1e6e44}.btn-mode:hover{background:#1e6e44}
 .confirm-inline{display:inline-flex;align-items:center;gap:5px;background:#1e1e1e;border:1px solid #f39c12;border-radius:4px;padding:3px 8px;font-size:11px;color:#f39c12;flex-wrap:wrap;margin-top:4px}
 .confirm-inline button{padding:2px 7px;font-size:11px}
+.cal-settings-grid{display:flex;gap:8px;flex-wrap:wrap}
+.cal-settings-grid label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
+.cal-settings-grid select{font-size:11px;padding:2px}
 .card-head-left{display:flex;align-items:center;gap:8px;min-width:0}
 .menu-wrap{position:relative;flex-shrink:0}
 .menu-btn{background:#0f3460;border:1px solid #1a4a7a;border-radius:4px;padding:2px 8px;font-size:15px;line-height:1;color:#e0e0e0}
@@ -332,6 +335,9 @@ function renderCard(data) {
         html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
         html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
         html += '</span>';
+    }
+    if (hasMidori) {
+        html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
     }
     html += '</div>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
@@ -628,6 +634,88 @@ function modeSwitch(host, mode, btn) {
         })
         .catch(function(err) { alert('Mode switch failed: ' + err); })
         .finally(function() { btn.disabled = false; btn.innerHTML = orig; });
+}
+
+function toggleCalendarPanel(host, btn) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var panelId = 'calendar-panel-' + safeId;
+    var existing = document.getElementById(panelId);
+    if (existing) { existing.remove(); return; }
+    var actionsDiv = btn.parentNode;
+    var panel = document.createElement('div');
+    panel.id = panelId;
+    panel.className = 'confirm-inline';
+    panel.innerHTML =
+        '<div class="cal-settings-grid">' +
+        '<label>Theme<select id="cal-theme-' + safeId + '">' +
+            '<option value="">No change</option>' +
+            '<option value="classic-gold">Classic Gold</option>' +
+            '<option value="modern-blue">Modern Blue</option>' +
+            '<option value="elegant-black">Elegant Black</option>' +
+            '<option value="liturgical-purple">Liturgical Purple</option>' +
+            '<option value="festive-red">Festive Red</option>' +
+            '<option value="light">Light Mode</option>' +
+        '</select></label>' +
+        '<label>Font<select id="cal-font-' + safeId + '">' +
+            '<option value="">No change</option>' +
+            '<option value="cinzel-lora">Cinzel + Lora</option>' +
+            '<option value="roboto-open-sans">Roboto + Open Sans</option>' +
+            '<option value="playfair-source">Nunito + Nunito Sans</option>' +
+        '</select></label>' +
+        '<label>Speed<select id="cal-speed-' + safeId + '">' +
+            '<option value="">No change</option>' +
+            '<option value="12">Normal (12s)</option>' +
+            '<option value="18">Slow (18s)</option>' +
+        '</select></label>' +
+        '<label>Margins<select id="cal-margins-' + safeId + '">' +
+            '<option value="">No change</option>' +
+            '<option value="1">Large</option>' +
+            '<option value="0">Normal</option>' +
+        '</select></label>' +
+        '</div>' +
+        '<button onclick="applyCalendarSettings(\'' + escapeAttr(host) + '\')">Apply &amp; Show</button>' +
+        ' <button onclick="document.getElementById(\'' + panelId + '\').remove()">Cancel</button>';
+    actionsDiv.appendChild(panel);
+}
+
+function applyCalendarSettings(host) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var theme = document.getElementById('cal-theme-' + safeId).value;
+    var font = document.getElementById('cal-font-' + safeId).value;
+    var speed = document.getElementById('cal-speed-' + safeId).value;
+    var margins = document.getElementById('cal-margins-' + safeId).value;
+
+    if (!theme && !font && !speed && !margins) {
+        alert('Select at least one setting to change.');
+        return;
+    }
+
+    var params = 'host=' + encodeURIComponent(host) + '&action=calendar-settings';
+    if (theme) params += '&theme=' + encodeURIComponent(theme);
+    if (font) params += '&font=' + encodeURIComponent(font);
+    if (speed) params += '&speed=' + encodeURIComponent(speed);
+    if (margins) params += '&margins=' + encodeURIComponent(margins);
+
+    var panelId = 'calendar-panel-' + safeId;
+    var panel = document.getElementById(panelId);
+    if (panel) panel.innerHTML = '<span class="spinner"></span> Applying&hellip;';
+
+    fetchJson('/cgi-bin/host-action.cgi?' + params)
+        .then(function(data) {
+            var current = document.getElementById(panelId);
+            if (data.error) {
+                alert('Calendar settings failed: ' + data.error);
+                if (current) current.remove();
+            } else {
+                if (current) current.remove();
+                setTimeout(function() { fetchAll(); }, 2000);
+            }
+        })
+        .catch(function(err) {
+            alert('Calendar settings failed: ' + err);
+            var current = document.getElementById(panelId);
+            if (current) current.remove();
+        });
 }
 
 function rebootHost(host, btn) {

@@ -87,9 +87,11 @@ rm -f /usr/local/bin/church-monitoring-collect
 rm -f /usr/local/bin/church-screenshot.sh
 rm -f /usr/local/bin/church-monitoring-reboot-host
 rm -f /usr/local/bin/church-monitoring-mode-midori
+rm -f /usr/local/bin/church-monitoring-set-calendar-settings
 rm -f /etc/sudoers.d/church-monitoring-screenshot
 rm -f /etc/sudoers.d/church-monitoring-restart
 rm -f /etc/sudoers.d/church-monitoring-actions
+rm -f /etc/sudoers.d/church-monitoring-calendar-settings
 
 # Remove lock file
 rm -f "$LOCK"

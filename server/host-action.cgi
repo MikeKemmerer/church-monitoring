@@ -5,6 +5,9 @@
 # Supported actions:
 #   reboot             - reboots the client host
 #   mode-switch&mode=vlc|midori  - switches kiosk display mode
+#   calendar-settings&theme=&font=&speed=&margins=  - pushes church-calendar
+#     display settings to the Midori kiosk session (any combination of the
+#     four params; switches the kiosk into Midori mode)
 
 echo "Content-Type: application/json"
 echo ""
@@ -103,6 +106,56 @@ case "$ACTION" in
             exit 0
         fi
         ENDPOINT="/cgi-bin/mode-switch.cgi?mode=${MODE_CLEAN}"
+        ;;
+    calendar-settings)
+        clean_val() {
+            echo "$1" | tr -cd 'a-zA-Z0-9-'
+        }
+        in_list() {
+            local needle="$1" list="$2" item
+            for item in $list; do
+                [ "$item" = "$needle" ] && return 0
+            done
+            return 1
+        }
+
+        ALLOWED_THEMES="classic-gold modern-blue elegant-black liturgical-purple festive-red light"
+        ALLOWED_FONTS="cinzel-lora roboto-open-sans playfair-source"
+        ALLOWED_SPEEDS="12 18"
+
+        RAW_THEME=$(parse_qs "theme")
+        RAW_FONT=$(parse_qs "font")
+        RAW_SPEED=$(parse_qs "speed")
+        RAW_MARGINS=$(parse_qs "margins")
+
+        THEME=$(clean_val "$RAW_THEME")
+        FONT=$(clean_val "$RAW_FONT")
+        SPEED=$(clean_val "$RAW_SPEED")
+        MARGINS=$(clean_val "$RAW_MARGINS")
+
+        if [ -n "$RAW_THEME" ] && ! in_list "$THEME" "$ALLOWED_THEMES"; then
+            echo '{"error":"invalid theme"}'
+            exit 0
+        fi
+        if [ -n "$RAW_FONT" ] && ! in_list "$FONT" "$ALLOWED_FONTS"; then
+            echo '{"error":"invalid font"}'
+            exit 0
+        fi
+        if [ -n "$RAW_SPEED" ] && ! in_list "$SPEED" "$ALLOWED_SPEEDS"; then
+            echo '{"error":"invalid speed"}'
+            exit 0
+        fi
+        if [ -n "$RAW_MARGINS" ] && [ "$MARGINS" != "0" ] && [ "$MARGINS" != "1" ]; then
+            echo '{"error":"invalid margins (must be 0 or 1)"}'
+            exit 0
+        fi
+
+        if [ -z "$THEME" ] && [ -z "$FONT" ] && [ -z "$SPEED" ] && [ -z "$MARGINS" ]; then
+            echo '{"error":"no settings provided - use theme, font, speed, and/or margins"}'
+            exit 0
+        fi
+
+        ENDPOINT="/cgi-bin/calendar-settings.cgi?theme=${THEME}&font=${FONT}&speed=${SPEED}&margins=${MARGINS}"
         ;;
     *)
         echo '{"error":"unknown action"}'

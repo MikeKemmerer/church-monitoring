@@ -405,6 +405,7 @@ REQUIRED_CGI=(
     restart-service.cgi
     reboot.cgi
     mode-switch.cgi
+    calendar-settings.cgi
     backup.cgi
     backup-download.cgi
 )
@@ -446,6 +447,16 @@ chmod 755 /usr/local/bin/church-screenshot.sh
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-screenshot.sh" \
     > /etc/sudoers.d/church-monitoring-screenshot
 chmod 440 /etc/sudoers.d/church-monitoring-screenshot
+
+# Install calendar settings helper (relaunches Midori with pushed display settings)
+cp "$SCRIPT_DIR/church-monitoring-set-calendar-settings" /usr/local/bin/church-monitoring-set-calendar-settings
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-set-calendar-settings
+chmod 755 /usr/local/bin/church-monitoring-set-calendar-settings
+
+# Allow www-data to run the calendar settings helper as the display user
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-calendar-settings" \
+    > /etc/sudoers.d/church-monitoring-calendar-settings
+chmod 440 /etc/sudoers.d/church-monitoring-calendar-settings
 
 # Allow www-data to restart systemd services
 echo "www-data ALL=(root) NOPASSWD: /bin/systemctl restart *" \

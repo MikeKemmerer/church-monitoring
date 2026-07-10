@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# church-monitoring-set-calendar-settings — Pushes church-calendar display
+# settings (theme, font, slide speed, margins) to the Midori kiosk session
+# by relaunching Midori with them as URL query params, and forces the kiosk
+# into Midori/calendar mode so the change is visible immediately.
+#
+# Must run as the pi user (invoked via `sudo -u pi` by calendar-settings.cgi)
+# so DISPLAY/XAUTHORITY resolve to the active kiosk X session — mirrors the
+# pattern used by church-screenshot.sh.
+#
+# Usage: church-monitoring-set-calendar-settings <theme> <font> <speed> <margins>
+# Each argument is either an allow-listed value or "-" to leave it unchanged.
+set -euo pipefail
+
+export DISPLAY=:0
+export XAUTHORITY="$HOME/.Xauthority"
+
+ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light)
+ALLOWED_FONTS=(cinzel-lora roboto-open-sans playfair-source)
+ALLOWED_SPEEDS=(12 18)
+
+THEME="${1:--}"
+FONT="${2:--}"
+SPEED="${3:--}"
+MARGINS="${4:--}"
+
+in_list() {
+    local needle="$1"
+    shift
+    local item
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+QS=""
+add_param() {
+    local key="$1" val="$2"
+    if [[ -n "$QS" ]]; then
+        QS="${QS}&${key}=${val}"
+    else
+        QS="${key}=${val}"
+    fi
+}
+
+if [[ "$THEME" != "-" ]]; then
+    if ! in_list "$THEME" "${ALLOWED_THEMES[@]}"; then
+        echo "Invalid theme: $THEME" >&2
+        exit 1
+    fi
+    add_param "theme" "$THEME"
+fi
+
+if [[ "$FONT" != "-" ]]; then
+    if ! in_list "$FONT" "${ALLOWED_FONTS[@]}"; then
+        echo "Invalid font: $FONT" >&2
+        exit 1
+    fi
+    add_param "font" "$FONT"
+fi
+
+if [[ "$SPEED" != "-" ]]; then
+    if ! in_list "$SPEED" "${ALLOWED_SPEEDS[@]}"; then
+        echo "Invalid speed: $SPEED" >&2
+        exit 1
+    fi
+    add_param "speed" "$SPEED"
+fi
+
+if [[ "$MARGINS" != "-" ]]; then
+    if [[ "$MARGINS" != "0" && "$MARGINS" != "1" ]]; then
+        echo "Invalid margins: $MARGINS" >&2
+        exit 1
+    fi
+    add_param "margins" "$MARGINS"
+fi
+
+if [[ -z "$QS" ]]; then
+    echo "No valid settings provided" >&2
+    exit 1
+fi
+
+LOCAL_CONF="$HOME/local.conf"
+if [[ -f "$LOCAL_CONF" ]]; then
+    # shellcheck source=/dev/null
+    source "$LOCAL_CONF"
+fi
+
+if [[ -z "${BROWSER_URL:-}" ]]; then
+    echo "BROWSER_URL not configured in $LOCAL_CONF" >&2
+    exit 1
+fi
+
+TARGET_URL="${BROWSER_URL}?${QS}"
+
+# Force the kiosk into Midori/calendar mode so the change is visible now.
+pkill -f "^vlc" 2>/dev/null || true
+pkill -x midori 2>/dev/null || true
+
+# Give the old Midori process a moment to fully exit before relaunching.
+sleep 1
+
+midori -e SingleWindow -e Fullscreen "$TARGET_URL" >/dev/null 2>&1 &
+disown
+
+echo "Calendar settings applied: $QS"
