@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# church-monitoring-write-calendar-image — Writes a new calendar image and
+# regenerates optimized/thumbnail derivatives.
+#
+# Must run as the church-calendar owner (invoked via `sudo -u pi` by
+# upload-calendar-image.cgi) so file ownership matches church-calendar's own
+# process, mirroring the church-screenshot.sh / church-monitoring-set-
+# calendar-settings pattern for crossing from www-data into pi's territory.
+#
+# Base64 image data is read from stdin.
+# Usage: church-monitoring-write-calendar-image <images_dir> <filename>
+set -euo pipefail
+
+IMAGES_DIR="${1:?images_dir required}"
+FILENAME="${2:?filename required}"
+
+# Defense in depth: re-validate even though the CGI already checked.
+if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
+    echo "Invalid filename" >&2
+    exit 1
+fi
+if ! [[ "$FILENAME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ .+\.(jpe?g|png|gif|webp)$ ]]; then
+    echo "Filename must be 'YYYY-MM-DD Description.ext'" >&2
+    exit 1
+fi
+if [[ ! -d "$IMAGES_DIR" ]]; then
+    echo "images_dir does not exist: $IMAGES_DIR" >&2
+    exit 1
+fi
+
+TARGET="$IMAGES_DIR/$FILENAME"
+TMP_FILE=$(mktemp "${IMAGES_DIR}/.upload-XXXXXX")
+
+if ! base64 -d > "$TMP_FILE" 2>/dev/null; then
+    rm -f "$TMP_FILE"
+    echo "Failed to decode image data" >&2
+    exit 1
+fi
+
+mv "$TMP_FILE" "$TARGET"
+chmod 644 "$TARGET"
+
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+fi
+
+echo "Wrote $TARGET"

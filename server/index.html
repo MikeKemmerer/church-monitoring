@@ -71,6 +71,15 @@ button:disabled{opacity:0.5;cursor:default}
 .badge-err{background:#c0392b;color:#fff}
 .cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
 .cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
+.images-panel{display:none;margin-top:8px;background:#0f3460;border-radius:6px;padding:10px}
+.images-upload{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px}
+.images-upload label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px}
+.img-tile{background:#16213e;border-radius:6px;padding:6px;text-align:center;position:relative}
+.img-tile.stale{border:1px solid #f39c12}
+.img-tile img{width:100%;height:60px;object-fit:cover;border-radius:4px;cursor:pointer}
+.img-noThumb{width:100%;height:60px;display:flex;align-items:center;justify-content:center;font-size:24px;background:#0a1a35;border-radius:4px}
+.img-name{font-size:9px;color:#a0a0c0;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
@@ -339,6 +348,11 @@ function renderCard(data) {
     if (hasMidori) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
     }
+    if (data.calendar_images) {
+        html += '<button onclick="toggleImagesPanel(\'' + escapeAttr(name) + '\',this)">&#128444; Manage Images' +
+            (data.calendar_images.stale > 0 ? ' <span class="badge badge-warn">' + data.calendar_images.stale + '</span>' : '') +
+            '</button>';
+    }
     html += '</div>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
 
@@ -348,6 +362,11 @@ function renderCard(data) {
         var cecDisplay = cached ? 'display:block' : 'display:none';
         var cecContent = cached ? renderCecResult(cached) : '';
         html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
+    }
+
+    // Calendar images management panel (populated on demand)
+    if (data.calendar_images) {
+        html += '<div class="images-panel" id="images-panel-' + safeId(name) + '"></div>';
     }
 
     html += '</div>'; // card-stats
@@ -364,6 +383,10 @@ function escapeHtml(s) {
 
 function escapeAttr(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,"\\'");
+}
+
+function safeId(s) {
+    return String(s).replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 function renderCecResult(cached) {
@@ -716,6 +739,145 @@ function applyCalendarSettings(host) {
             var current = document.getElementById(panelId);
             if (current) current.remove();
         });
+}
+
+function toggleImagesPanel(host, btn) {
+    var panel = document.getElementById('images-panel-' + safeId(host));
+    if (!panel) return;
+    if (panel.style.display !== 'none' && panel.style.display !== '') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    loadImagesPanel(host);
+}
+
+function loadImagesPanel(host) {
+    var panel = document.getElementById('images-panel-' + safeId(host));
+    if (!panel) return;
+    panel.innerHTML = '<span class="spinner"></span> Loading images&hellip;';
+
+    fetchJson('/cgi-bin/fetch-calendar-images.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error) {
+                panel.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>';
+                return;
+            }
+            renderImagesPanel(host, data, panel);
+        })
+        .catch(function(err) {
+            panel.innerHTML = '<small>&#9888; Failed to load images: ' + escapeHtml(String(err)) + '</small>';
+        });
+}
+
+function renderImagesPanel(host, data, panel) {
+    var id = safeId(host);
+    var images = data.images || [];
+
+    var html = '<div class="images-upload">';
+    html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+    html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
+    html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
+    html += '</div>';
+    html += '<div id="img-upload-status-' + id + '"></div>';
+
+    if (data.stale > 0) {
+        html += '<div class="cal-info-warn">&#9888; ' + data.stale + ' of ' + data.total + ' image(s) are past their removal date.</div>';
+    }
+
+    if (!images.length) {
+        html += '<div class="stale">No images found.</div>';
+    } else {
+        html += '<div class="img-grid">';
+        images.forEach(function(img) {
+            html += '<div class="img-tile' + (img.stale ? ' stale' : '') + '">';
+            if (img.thumbnail) {
+                html += '<img src="' + img.thumbnail + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
+            } else {
+                html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
+            }
+            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (img.stale) html += '<span class="badge badge-warn">stale</span>';
+            html += '<div><button class="btn-danger" style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="deleteCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Delete</button></div>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    panel.innerHTML = html;
+}
+
+function viewCalendarImage(host, filename) {
+    var url = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename);
+    window.open(url, '_blank');
+}
+
+function uploadCalendarImage(host) {
+    var id = safeId(host);
+    var dateInput = document.getElementById('img-upload-date-' + id);
+    var fileInput = document.getElementById('img-upload-file-' + id);
+    var statusEl = document.getElementById('img-upload-status-' + id);
+
+    var removeDate = dateInput ? dateInput.value : '';
+    var file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+    if (!removeDate) { alert('Choose the date this image should be removed from the calendar.'); return; }
+    if (!file) { alert('Choose an image file to upload.'); return; }
+
+    var ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+    if (!/^\.(jpe?g|png|gif|webp)$/.test(ext)) {
+        alert('Unsupported file type. Use jpg, jpeg, png, gif, or webp.');
+        return;
+    }
+
+    var baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+    if (!baseName) baseName = 'image';
+    var filename = removeDate + ' ' + baseName + ext;
+
+    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading&hellip;';
+
+    var reader = new FileReader();
+    reader.onload = function() {
+        var dataUrl = reader.result;
+        var base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+
+        fetch('/cgi-bin/upload-calendar-image.cgi?host=' + encodeURIComponent(host), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({filename: filename, data_base64: base64})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    if (statusEl) statusEl.innerHTML = '<small>&#9888; ' + escapeHtml(data.error || 'Upload failed') + '</small>';
+                    return;
+                }
+                if (statusEl) statusEl.innerHTML = '';
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) {
+                if (statusEl) statusEl.innerHTML = '<small>&#9888; Upload failed: ' + escapeHtml(String(err)) + '</small>';
+            });
+    };
+    reader.onerror = function() {
+        if (statusEl) statusEl.innerHTML = '<small>&#9888; Failed to read file</small>';
+    };
+    reader.readAsDataURL(file);
+}
+
+function deleteCalendarImageUI(host, filename) {
+    if (!confirm('Delete "' + filename + '" from the calendar?')) return;
+    fetchJson('/cgi-bin/delete-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Delete failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Delete failed: ' + err); });
 }
 
 function rebootHost(host, btn) {

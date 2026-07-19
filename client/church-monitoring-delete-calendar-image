@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# church-monitoring-delete-calendar-image — Deletes a calendar image and
+# regenerates optimized/thumbnail derivatives (removing the now-orphaned
+# ones via church-calendar's own cleanup logic).
+#
+# Must run as the church-calendar owner (invoked via `sudo -u pi` by
+# delete-calendar-image.cgi).
+#
+# Usage: church-monitoring-delete-calendar-image <images_dir> <filename>
+set -euo pipefail
+
+IMAGES_DIR="${1:?images_dir required}"
+FILENAME="${2:?filename required}"
+
+if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
+    echo "Invalid filename" >&2
+    exit 1
+fi
+
+TARGET="$IMAGES_DIR/$FILENAME"
+if [[ ! -f "$TARGET" ]]; then
+    echo "Image not found: $TARGET" >&2
+    exit 1
+fi
+
+rm -f "$TARGET"
+
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+fi
+
+echo "Deleted $TARGET"

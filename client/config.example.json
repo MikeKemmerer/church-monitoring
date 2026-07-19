@@ -20,6 +20,7 @@
         {"name": "midori", "type": "process", "match": "midori|x-www-browser"}
     ],
     "cec_enabled": false,
+    "calendar_images_path": "/home/pi/church-calendar/images",
     "backup": {
         "dir": "/var/backups/church-monitoring",
         "keep": 5,
