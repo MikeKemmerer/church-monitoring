@@ -1,6 +1,13 @@
 # Sensitive config (use config.example.json in each directory as templates)
+# Real per-host config.json snapshots pulled from deployed hosts (e.g.
+# config.liturgystream.json) are also gitignored, but config.example.json
+# stays tracked as the template.
 client/config.json
+client/config.*.json
+!client/config.example.json
 server/config.json
+server/config.*.json
+!server/config.example.json
 
 # Certificates and keys
 *.pem
