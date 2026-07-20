@@ -4,9 +4,11 @@
 #
 # Returns each image's filename, size, mtime, the parsed removal date (from
 # the "YYYY-MM-DD Description.ext" filename convention, if present) with a
-# stale flag when that date is in the past, and an inline base64 thumbnail
-# data URL (reusing the WebP thumbnail church-calendar's image_optimizer.py
-# already generates, when available).
+# stale flag when that date is in the past, and an inline base64 preview
+# data URL. Prefers the "optimized" WebP (up to 800x600 @ quality 85) that
+# church-calendar's image_optimizer.py already generates for its own
+# slideshow, falling back to the much smaller 50x50 thumbnail if that's
+# unavailable.
 #
 # Uses the same calendar_images_path config + default fallback as collect.sh
 # so the button only appears (data.calendar_images) when this will work.
@@ -27,6 +29,7 @@ if [ ! -d "$IMAGES_DIR" ]; then
     exit 0
 fi
 
+OPTIMIZED_DIR="$IMAGES_DIR/optimized"
 THUMB_DIR="$IMAGES_DIR/thumbnails"
 TODAY=$(date +%Y-%m-%d)
 
@@ -42,10 +45,14 @@ while IFS= read -r f; do
         STALE="true"
     fi
 
+    # Prefer the larger 'optimized' WebP (up to 800x600 @ quality 85, already
+    # generated for the calendar's own slideshow) over the tiny 50x50 thumbnail
+    # so previews in the dashboard aren't blurry.
     THUMB_DATA_URL=""
-    THUMB_FILE="$THUMB_DIR/${BASENAME}.webp"
-    if [ -f "$THUMB_FILE" ]; then
-        THUMB_B64=$(base64 -w0 "$THUMB_FILE" 2>/dev/null || echo "")
+    PREVIEW_FILE="$OPTIMIZED_DIR/${BASENAME}.webp"
+    [ -f "$PREVIEW_FILE" ] || PREVIEW_FILE="$THUMB_DIR/${BASENAME}.webp"
+    if [ -f "$PREVIEW_FILE" ]; then
+        THUMB_B64=$(base64 -w0 "$PREVIEW_FILE" 2>/dev/null || echo "")
         [ -n "$THUMB_B64" ] && THUMB_DATA_URL="data:image/webp;base64,${THUMB_B64}"
     fi
 
