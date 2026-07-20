@@ -175,6 +175,10 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/host-action.cgi" "$CGI_DIR/host-action.cgi"
     cp "$SCRIPT_DIR/backup.cgi" "$CGI_DIR/backup.cgi"
     cp "$SCRIPT_DIR/backup-download.cgi" "$CGI_DIR/backup-download.cgi"
+    cp "$SCRIPT_DIR/fetch-calendar-images.cgi" "$CGI_DIR/fetch-calendar-images.cgi"
+    cp "$SCRIPT_DIR/fetch-calendar-image-file.cgi" "$CGI_DIR/fetch-calendar-image-file.cgi"
+    cp "$SCRIPT_DIR/upload-calendar-image.cgi" "$CGI_DIR/upload-calendar-image.cgi"
+    cp "$SCRIPT_DIR/delete-calendar-image.cgi" "$CGI_DIR/delete-calendar-image.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
 
@@ -381,6 +385,10 @@ cp "$SCRIPT_DIR/device-status.cgi" "$CGI_DIR/device-status.cgi"
 cp "$SCRIPT_DIR/host-action.cgi" "$CGI_DIR/host-action.cgi"
 cp "$SCRIPT_DIR/backup.cgi" "$CGI_DIR/backup.cgi"
 cp "$SCRIPT_DIR/backup-download.cgi" "$CGI_DIR/backup-download.cgi"
+cp "$SCRIPT_DIR/fetch-calendar-images.cgi" "$CGI_DIR/fetch-calendar-images.cgi"
+cp "$SCRIPT_DIR/fetch-calendar-image-file.cgi" "$CGI_DIR/fetch-calendar-image-file.cgi"
+cp "$SCRIPT_DIR/upload-calendar-image.cgi" "$CGI_DIR/upload-calendar-image.cgi"
+cp "$SCRIPT_DIR/delete-calendar-image.cgi" "$CGI_DIR/delete-calendar-image.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
