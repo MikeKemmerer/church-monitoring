@@ -424,9 +424,11 @@ REQUIRED_CGI=(
     mode-switch.cgi
     calendar-settings.cgi
     list-calendar-images.cgi
+    list-archived-calendar-images.cgi
     fetch-calendar-image.cgi
     upload-calendar-image.cgi
-    delete-calendar-image.cgi
+    archive-calendar-image.cgi
+    restore-calendar-image.cgi
     backup.cgi
     backup-download.cgi
 )
@@ -454,6 +456,7 @@ done
 
 # Remove retired action CGI endpoints.
 rm -f "$CGI_DIR/restart-network.cgi" "$CGI_DIR/restart-display.cgi"
+rm -f "$CGI_DIR/delete-calendar-image.cgi"
 
 # Remove legacy shared CGI directory after migration.
 if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
@@ -479,18 +482,22 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-calendar
     > /etc/sudoers.d/church-monitoring-calendar-settings
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-settings
 
-# Install calendar image management helpers (write/delete as the
+# Install calendar image management helpers (write/archive/restore as the
 # church-calendar owner, then regenerate optimized/thumbnail derivatives)
-for HELPER in church-monitoring-write-calendar-image church-monitoring-delete-calendar-image; do
+for HELPER in church-monitoring-write-calendar-image church-monitoring-archive-calendar-image church-monitoring-restore-calendar-image; do
     cp "$SCRIPT_DIR/$HELPER" "/usr/local/bin/$HELPER"
     sed -i 's/\r$//' "/usr/local/bin/$HELPER"
     chmod 755 "/usr/local/bin/$HELPER"
 done
 
+# Retire the old delete-based helper name (superseded by the archive helper).
+rm -f /usr/local/bin/church-monitoring-delete-calendar-image
+
 # Allow www-data to run the calendar image helpers as the display user
 cat > /etc/sudoers.d/church-monitoring-calendar-images <<'SUDOEOF'
 www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-write-calendar-image
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-delete-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-archive-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-restore-calendar-image
 SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-images
 

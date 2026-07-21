@@ -1020,6 +1020,7 @@ function renderImagesPanel(host, data, panel) {
     if (hasRole('contributor')) {
         html += '<div class="images-upload">';
         html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+        html += '<label><input type="checkbox" id="img-upload-evergreen-' + id + '" onchange="toggleEvergreenInput(\'' + id + '\')"> Evergreen (no removal date)</label>';
         html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
         html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
         html += '</div>';
@@ -1042,16 +1043,93 @@ function renderImagesPanel(host, data, panel) {
                 html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
             }
             html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
-            if (img.stale) html += '<span class="badge badge-warn">stale</span>';
+            if (img.evergreen) html += '<span class="badge" style="background:#1a6e3c">evergreen</span>';
+            else if (img.stale) html += '<span class="badge badge-warn">stale</span>';
             if (hasRole('contributor')) {
-                html += '<div><button class="btn-danger" style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="deleteCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Delete</button></div>';
+                html += '<div><button class="btn-danger" style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="archiveCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Archive</button></div>';
             }
             html += '</div>';
         });
         html += '</div>';
     }
 
+    html += '<div style="margin-top:8px"><button onclick="toggleArchivePanel(\'' + escapeAttr(host) + '\')">&#128193; View Archive</button></div>';
+    html += '<div class="images-panel" id="archive-panel-' + id + '" style="display:none;margin-top:6px"></div>';
+
     panel.innerHTML = html;
+}
+
+function toggleEvergreenInput(id) {
+    var cb = document.getElementById('img-upload-evergreen-' + id);
+    var dateInput = document.getElementById('img-upload-date-' + id);
+    if (!cb || !dateInput) return;
+    dateInput.disabled = cb.checked;
+    if (cb.checked) dateInput.value = '';
+}
+
+function toggleArchivePanel(host) {
+    var panel = document.getElementById('archive-panel-' + safeId(host));
+    if (!panel) return;
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    loadArchivePanel(host);
+}
+
+function loadArchivePanel(host) {
+    var panel = document.getElementById('archive-panel-' + safeId(host));
+    if (!panel) return;
+    panel.innerHTML = '<span class="spinner"></span> Loading archive&hellip;';
+
+    fetchJson('/cgi-bin/fetch-archived-calendar-images.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error) {
+                panel.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>';
+                return;
+            }
+            renderArchivePanel(host, data, panel);
+        })
+        .catch(function(err) {
+            panel.innerHTML = '<small>&#9888; Failed to load archive: ' + escapeHtml(String(err)) + '</small>';
+        });
+}
+
+function renderArchivePanel(host, data, panel) {
+    var images = data.images || [];
+    var html = '<div class="stale" style="margin-bottom:6px">Archived images (excluded from the live calendar)</div>';
+    if (!images.length) {
+        html += '<div class="stale">No archived images.</div>';
+    } else {
+        html += '<div class="img-grid">';
+        images.forEach(function(img) {
+            var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&archived=1';
+            html += '<div class="img-tile">';
+            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (hasRole('contributor')) {
+                html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="restoreCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Restore</button></div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    panel.innerHTML = html;
+}
+
+function restoreCalendarImageUI(host, filename) {
+    fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Restore failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadArchivePanel(host);
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Restore failed: ' + err); });
 }
 
 function viewCalendarImage(host, filename) {
@@ -1062,13 +1140,15 @@ function viewCalendarImage(host, filename) {
 function uploadCalendarImage(host) {
     var id = safeId(host);
     var dateInput = document.getElementById('img-upload-date-' + id);
+    var evergreenCb = document.getElementById('img-upload-evergreen-' + id);
     var fileInput = document.getElementById('img-upload-file-' + id);
     var statusEl = document.getElementById('img-upload-status-' + id);
 
     var removeDate = dateInput ? dateInput.value : '';
+    var evergreen = evergreenCb ? evergreenCb.checked : false;
     var file = fileInput && fileInput.files ? fileInput.files[0] : null;
 
-    if (!removeDate) { alert('Choose the date this image should be removed from the calendar.'); return; }
+    if (!evergreen && !removeDate) { alert('Choose the date this image should be removed from the calendar, or check Evergreen.'); return; }
     if (!file) { alert('Choose an image file to upload.'); return; }
 
     var ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
@@ -1079,7 +1159,7 @@ function uploadCalendarImage(host) {
 
     var baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
     if (!baseName) baseName = 'image';
-    var filename = removeDate + ' ' + baseName + ext;
+    var filename = (evergreen ? 'EVERGREEN' : removeDate) + ' ' + baseName + ext;
 
     if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading&hellip;';
 
@@ -1113,18 +1193,18 @@ function uploadCalendarImage(host) {
     reader.readAsDataURL(file);
 }
 
-function deleteCalendarImageUI(host, filename) {
-    if (!confirm('Delete "' + filename + '" from the calendar?')) return;
-    fetchJson('/cgi-bin/delete-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+function archiveCalendarImageUI(host, filename) {
+    if (!confirm('Archive "' + filename + '"? It will be removed from the live calendar but can be restored later.')) return;
+    fetchJson('/cgi-bin/archive-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
         .then(function(data) {
             if (data.error || data.result === 'failed') {
-                alert('Delete failed: ' + (data.error || 'unknown error'));
+                alert('Archive failed: ' + (data.error || 'unknown error'));
                 return;
             }
             loadImagesPanel(host);
             setTimeout(function() { refreshOne(host); }, 1000);
         })
-        .catch(function(err) { alert('Delete failed: ' + err); });
+        .catch(function(err) { alert('Archive failed: ' + err); });
 }
 
 function rebootHost(host, btn) {

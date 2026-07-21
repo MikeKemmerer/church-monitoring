@@ -237,9 +237,14 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/fetch-calendar-images.cgi" "$CGI_DIR/fetch-calendar-images.cgi"
     cp "$SCRIPT_DIR/fetch-calendar-image-file.cgi" "$CGI_DIR/fetch-calendar-image-file.cgi"
     cp "$SCRIPT_DIR/upload-calendar-image.cgi" "$CGI_DIR/upload-calendar-image.cgi"
-    cp "$SCRIPT_DIR/delete-calendar-image.cgi" "$CGI_DIR/delete-calendar-image.cgi"
+    cp "$SCRIPT_DIR/archive-calendar-image.cgi" "$CGI_DIR/archive-calendar-image.cgi"
+    cp "$SCRIPT_DIR/restore-calendar-image.cgi" "$CGI_DIR/restore-calendar-image.cgi"
+    cp "$SCRIPT_DIR/fetch-archived-calendar-images.cgi" "$CGI_DIR/fetch-archived-calendar-images.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
+
+    # Retire the old delete-based endpoint (superseded by archive-calendar-image.cgi).
+    rm -f "$CGI_DIR/delete-calendar-image.cgi"
 
     # Remove legacy shared CGI directory after migration.
     if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
@@ -430,7 +435,9 @@ cp "$SCRIPT_DIR/backup-download.cgi" "$CGI_DIR/backup-download.cgi"
 cp "$SCRIPT_DIR/fetch-calendar-images.cgi" "$CGI_DIR/fetch-calendar-images.cgi"
 cp "$SCRIPT_DIR/fetch-calendar-image-file.cgi" "$CGI_DIR/fetch-calendar-image-file.cgi"
 cp "$SCRIPT_DIR/upload-calendar-image.cgi" "$CGI_DIR/upload-calendar-image.cgi"
-cp "$SCRIPT_DIR/delete-calendar-image.cgi" "$CGI_DIR/delete-calendar-image.cgi"
+cp "$SCRIPT_DIR/archive-calendar-image.cgi" "$CGI_DIR/archive-calendar-image.cgi"
+cp "$SCRIPT_DIR/restore-calendar-image.cgi" "$CGI_DIR/restore-calendar-image.cgi"
+cp "$SCRIPT_DIR/fetch-archived-calendar-images.cgi" "$CGI_DIR/fetch-archived-calendar-images.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 

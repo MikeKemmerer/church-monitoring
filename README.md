@@ -119,7 +119,7 @@ The dashboard has its own login screen with per-account sessions and three roles
 | Role | Can do |
 |------|--------|
 | `user` | Read-only: view status, screenshots, backups, calendar images |
-| `contributor` | Everything a `user` can, plus actions: reboot, restart services, CEC control, mode-switch, calendar settings, backup creation, calendar image upload/delete |
+| `contributor` | Everything a `user` can, plus actions: reboot, restart services, CEC control, mode-switch, calendar settings, backup creation, calendar image upload/archive/restore |
 | `admin` | Everything a `contributor` can, plus user management: add/remove users, change roles, reset passwords, lock/unlock accounts |
 
 Any logged-in user can change their own password from the dashboard header

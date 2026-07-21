@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # fetch-calendar-image.cgi - Serves one original calendar image as binary.
 # Accepts ?filename=X (basename only, must exist in the configured images
-# folder). Used for "view full size" from the dashboard's image panel.
+# folder) and optionally &archived=1 to serve from images/archive/ instead.
+# Used for "view full size" from the dashboard's image panel, and directly
+# as the archive panel's thumbnail <img> src (no separate preview generated
+# for archived images).
 
 CONFIG="/etc/church-monitoring/client-config.json"
 
@@ -28,13 +31,19 @@ url_decode() {
 }
 FILENAME=$(url_decode "$RAW_FILENAME")
 
+ARCHIVED=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^archived=" | cut -d= -f2- | head -1)
+
 # Basename only -- reject any path traversal attempt outright.
 SAFE_NAME=$(basename "$FILENAME")
 if [ "$SAFE_NAME" != "$FILENAME" ]; then
     json_error "invalid filename"
 fi
 
-TARGET="$IMAGES_DIR/$SAFE_NAME"
+if [ "$ARCHIVED" = "1" ]; then
+    TARGET="$IMAGES_DIR/archive/$SAFE_NAME"
+else
+    TARGET="$IMAGES_DIR/$SAFE_NAME"
+fi
 if [ ! -f "$TARGET" ]; then
     json_error "image not found"
 fi

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# delete-calendar-image.cgi - Deletes a calendar image. The sudo helper also
+# archive-calendar-image.cgi - Archives a calendar image (moves it into
+# images/archive/ instead of deleting it outright). The sudo helper also
 # re-runs church-calendar's image_optimizer.py, which cleans up the now-
-# orphaned optimized/thumbnail derivatives automatically.
+# orphaned optimized/thumbnail derivatives automatically. The archived file
+# is preserved and can be brought back via restore-calendar-image.cgi.
 # Accepts ?filename=X (basename only).
 
 CONFIG="/etc/church-monitoring/client-config.json"
@@ -38,9 +40,9 @@ if [ ! -f "$IMAGES_DIR/$SAFE_NAME" ]; then
     json_error "image not found"
 fi
 
-HELPER="/usr/local/bin/church-monitoring-delete-calendar-image"
+HELPER="/usr/local/bin/church-monitoring-archive-calendar-image"
 if [ ! -x "$HELPER" ]; then
-    json_error "delete helper not installed"
+    json_error "archive helper not installed"
 fi
 
 RESULT=$(sudo -u pi "$HELPER" "$IMAGES_DIR" "$SAFE_NAME" 2>&1)
@@ -51,7 +53,7 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 echo "Content-Type: application/json"
 echo ""
 if [ $RC -eq 0 ]; then
-    echo "{\"result\":\"deleted\",\"filename\":$(echo "$SAFE_NAME" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
+    echo "{\"result\":\"archived\",\"filename\":$(echo "$SAFE_NAME" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
 else
     echo "{\"result\":\"failed\",\"error\":$(echo "$RESULT" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
 fi

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# delete-calendar-image.cgi — Proxies a calendar image deletion to a client.
-# Called with ?host=<client_name>&filename=<name>
+# restore-calendar-image.cgi — Proxies a calendar image restore request to a
+# client (moves the image from images/archive/ back into images/ on the
+# client). Called with ?host=<client_name>&filename=<name>
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -47,10 +48,10 @@ PORT=$(echo "$CLIENT" | jq -r '.port')
 
 DATA=$(curl -s --connect-timeout 5 --max-time 20 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/delete-calendar-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
+    "https://${HOST}:${PORT}/cgi-bin/restore-calendar-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
-    echo '{"error":"delete failed or timed out"}'
+    echo '{"error":"restore failed or timed out"}'
     exit 0
 fi
 
