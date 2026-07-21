@@ -36,11 +36,11 @@ sudo ./server/install.sh
 
 The installer will:
 
-1. Install packages (`apache2`, `openssl`, `jq`, `apache2-utils`)
+1. Install packages (`apache2`, `openssl`, `jq`)
 2. Create a Certificate Authority for mutual TLS
 3. Generate a server client certificate
 4. Set up the dashboard on port 8080 (configurable with `--port`)
-5. Configure HTTP basic auth (you'll set a password)
+5. Bootstrap the initial admin login account (role-based: user/contributor/admin)
 6. Create the enrollment endpoint for client onboarding
 7. Generate the first enrollment token
 
@@ -103,12 +103,31 @@ Run these on the **server**:
 # Generate a new enrollment token for another client
 sudo ./server/generate-token.sh
 
-# Manage dashboard passwords (add, remove, change)
-sudo ./server/manage-auth.sh
-
 # Manually sign a certificate signing request
 sudo ./server/sign-csr.sh <path-to-csr>
 ```
+
+Dashboard user accounts (add/remove, change roles, reset passwords, lock/unlock)
+are managed from the dashboard itself, in the admin-only "Manage Users" panel
+after logging in at `https://<host>:<port>/login.html` — see
+[User Accounts & Roles](#user-accounts--roles) below.
+
+## User Accounts & Roles
+
+The dashboard has its own login screen with per-account sessions and three roles:
+
+| Role | Can do |
+|------|--------|
+| `user` | Read-only: view status, screenshots, backups, calendar images |
+| `contributor` | Everything a `user` can, plus actions: reboot, restart services, CEC control, mode-switch, calendar settings, backup creation, calendar image upload/delete |
+| `admin` | Everything a `contributor` can, plus user management: add/remove users, change roles, reset passwords, lock/unlock accounts |
+
+Any logged-in user can change their own password from the dashboard header
+(requires the current password). Five consecutive failed login attempts locks
+the account out temporarily, with an exponentially increasing wait (30s, 1m,
+2m, 4m, ... capped at 30 minutes) for each additional failed attempt — an admin
+can also lock/unlock accounts manually at any time. Passwords are stored as
+SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 
 ## File Locations
 
@@ -120,7 +139,8 @@ sudo ./server/sign-csr.sh <path-to-csr>
 | `/etc/church-monitoring/ca/` | CA certificate and key |
 | `/etc/church-monitoring/ssl/` | Server client certificate |
 | `/etc/church-monitoring/tokens/` | Enrollment tokens |
-| `/etc/church-monitoring/.htpasswd` | Dashboard credentials |
+| `/etc/church-monitoring/users.json` | Dashboard accounts (hashed passwords) |
+| `/etc/church-monitoring/sessions/` | Active login sessions |
 | `/var/www/church-monitoring/` | Dashboard web root |
 | `/usr/lib/cgi-bin/church-monitoring-server/` | Server CGI scripts |
 

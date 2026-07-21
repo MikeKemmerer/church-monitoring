@@ -2,6 +2,9 @@
 # fetch-cec.cgi — Proxies an on-demand CEC check to a specific client.
 # Called by the dashboard CEC button with ?host=<client_name>
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 echo "Content-Type: application/json"
 echo ""
 

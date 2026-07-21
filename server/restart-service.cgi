@@ -2,6 +2,9 @@
 # restart-service.cgi — Proxies a service restart request to a client.
 # Called by the dashboard with ?host=<client_name>&service=<service_name>
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 

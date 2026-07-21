@@ -6,6 +6,9 @@
 #   "http:PORT"  — HTTP GET probe
 # Results are cached for 60 seconds.
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 echo "Content-Type: application/json"
 echo ""
 

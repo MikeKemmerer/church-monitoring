@@ -2,6 +2,9 @@
 # fetch-calendar-image-file.cgi — Proxies a single full-size calendar image
 # from a client (binary passthrough). Called with ?host=<client_name>&filename=<name>
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 CONFIG="/etc/church-monitoring/server-config.json"
 CERT="/etc/church-monitoring/ssl/server.crt"
 KEY="/etc/church-monitoring/ssl/server.key"

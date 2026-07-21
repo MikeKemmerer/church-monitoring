@@ -11,6 +11,7 @@ TOKEN_DIR="$CONF_DIR/tokens"
 WEB_ROOT="/var/www/church-monitoring"
 CGI_DIR="/usr/lib/cgi-bin/church-monitoring-server"
 LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+LIB_DIR="/usr/local/lib/church-monitoring"
 DEFAULT_PORT=8080
 
 # ── Help ──────────────────────────────────────────────────────────────
@@ -28,19 +29,22 @@ Options:
                     (keeps CA, certs, config, auth, and port unchanged)
 
 The server installer will:
-    1. Install required packages (apache2, openssl, jq, apache2-utils)
+    1. Install required packages (apache2, openssl, jq)
     2. Create a Certificate Authority (CA) for mutual TLS
     3. Generate a server client certificate (used to fetch from agents)
     4. Generate a self-signed TLS certificate for the dashboard
-    5. Configure HTTP basic authentication for the dashboard
+    5. Bootstrap the initial admin login account (role-based: user/
+       contributor/admin), replacing HTTP Basic Auth with a proper login
+       screen and per-account session cookies
     6. Set up the monitoring dashboard on the specified port
     7. Create the enrollment endpoint for client onboarding
     8. Generate the first enrollment token
 
 After installation:
-    - Access the dashboard at https://<host>:<port>/
+    - Access the dashboard at https://<host>:<port>/ (redirects to login.html)
     - Generate more enrollment tokens: sudo generate-token.sh
-    - Manage passwords: sudo manage-auth.sh
+    - Manage dashboard users/roles/lockouts: log in as an admin and use the
+      "Manage Users" panel (or the users.cgi API directly)
     - Sign CSRs manually: sudo sign-csr.sh <path-to-csr>
 
 File locations:
@@ -106,7 +110,7 @@ fi
 
 # ── Install packages ─────────────────────────────────────────────────
 install_packages() {
-    local required=(apache2 openssl jq apache2-utils curl)
+    local required=(apache2 openssl jq curl)
     local missing=()
 
     for pkg in "${required[@]}"; do
@@ -125,6 +129,46 @@ install_packages() {
     fi
 }
 
+# ── Bootstrap the initial admin login account ────────────────────────
+# Idempotent: does nothing if users.json already exists (preserves existing
+# accounts across --update runs). Used by both the fresh-install and
+# --update flows.
+bootstrap_users_json() {
+    if [[ -f "$CONF_DIR/users.json" ]]; then
+        echo "  users.json already exists — leaving existing accounts unchanged."
+        return
+    fi
+
+    echo "  No dashboard accounts configured yet. Create the initial admin account:"
+    read -r -p "  Admin username [admin]: " INIT_USER
+    INIT_USER="${INIT_USER:-admin}"
+    while true; do
+        read -r -s -p "  Admin password: " INIT_PASS
+        echo ""
+        if [[ ${#INIT_PASS} -lt 8 ]]; then
+            echo "  Password must be at least 8 characters."
+            continue
+        fi
+        read -r -s -p "  Confirm password: " INIT_PASS2
+        echo ""
+        if [[ "$INIT_PASS" != "$INIT_PASS2" ]]; then
+            echo "  Passwords do not match. Try again."
+            continue
+        fi
+        break
+    done
+
+    # shellcheck source=auth-lib.sh
+    source "$SCRIPT_DIR/auth-lib.sh"
+    INIT_HASH=$(printf '%s' "$INIT_PASS" | hash_password)
+    jq -n --arg u "$INIT_USER" --arg h "$INIT_HASH" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{"users":[{"username":$u,"password_hash":$h,"role":"admin","locked":false,"failed_attempts":0,"lockout_until":0,"created":$t,"last_login":null}]}' \
+        > "$CONF_DIR/users.json"
+    chmod 640 "$CONF_DIR/users.json"
+    chown root:www-data "$CONF_DIR/users.json"
+    echo "  Admin account '$INIT_USER' created."
+}
+
 echo "=== Church Monitoring Server Installer ==="
 echo ""
 
@@ -139,7 +183,6 @@ if [[ $UPDATE -eq 1 ]]; then
     [[ ! -f "$SSL_DIR/dashboard.crt" ]]      && MISSING="$MISSING  - Dashboard certificate ($SSL_DIR/dashboard.crt)\n"
     [[ ! -f "$SSL_DIR/dashboard.key" ]]      && MISSING="$MISSING  - Dashboard private key ($SSL_DIR/dashboard.key)\n"
     [[ ! -f "$CONF_DIR/server-config.json" ]]&& MISSING="$MISSING  - Server configuration ($CONF_DIR/server-config.json)\n"
-    [[ ! -f "$CONF_DIR/.htpasswd" ]]         && MISSING="$MISSING  - Dashboard credentials ($CONF_DIR/.htpasswd)\n"
 
     if [[ -n "$MISSING" ]]; then
         echo "" >&2
@@ -152,20 +195,36 @@ if [[ $UPDATE -eq 1 ]]; then
 
     PORT=$(jq -r '.port // empty' "$CONF_DIR/server-config.json" 2>/dev/null)
     PORT="${PORT:-$DEFAULT_PORT}"
-    HTPASSWD="$CONF_DIR/.htpasswd"
     echo "  Installation verified (port $PORT)."
+    echo ""
+
+    echo "Checking dashboard login accounts..."
+    bootstrap_users_json
+    mkdir -p "$CONF_DIR/sessions"
+    chmod 750 "$CONF_DIR/sessions"
+    chown root:www-data "$CONF_DIR/sessions"
     echo ""
 
     # Install web files and scripts
     echo "Updating dashboard and CGI scripts..."
 
-    mkdir -p "$CGI_DIR"
+    mkdir -p "$CGI_DIR" "$LIB_DIR"
 
     cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
     cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
+    cp "$SCRIPT_DIR/login.html" "$WEB_ROOT/login.html"
     chown -R www-data:www-data "$WEB_ROOT"
 
+    cp "$SCRIPT_DIR/auth-lib.sh" "$LIB_DIR/auth-lib.sh"
+    chmod 644 "$LIB_DIR/auth-lib.sh"
+    chown root:root "$LIB_DIR/auth-lib.sh"
+
     cp "$SCRIPT_DIR/enroll.cgi" "$CGI_DIR/enroll.cgi"
+    cp "$SCRIPT_DIR/login.cgi" "$CGI_DIR/login.cgi"
+    cp "$SCRIPT_DIR/logout.cgi" "$CGI_DIR/logout.cgi"
+    cp "$SCRIPT_DIR/whoami.cgi" "$CGI_DIR/whoami.cgi"
+    cp "$SCRIPT_DIR/change-password.cgi" "$CGI_DIR/change-password.cgi"
+    cp "$SCRIPT_DIR/users.cgi" "$CGI_DIR/users.cgi"
     cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
     cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
     cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
@@ -189,8 +248,12 @@ if [[ $UPDATE -eq 1 ]]; then
 
     cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh
     cp "$SCRIPT_DIR/sign-csr.sh" /usr/local/bin/sign-csr.sh
-    cp "$SCRIPT_DIR/manage-auth.sh" /usr/local/bin/manage-auth.sh
-    chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh /usr/local/bin/manage-auth.sh
+    chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh
+
+    # Retire the old HTTP Basic Auth mechanism, now superseded by the
+    # session-based login system (users.json + users.cgi).
+    rm -f /usr/local/bin/manage-auth.sh
+    rm -f "$CONF_DIR/.htpasswd"
 
     # Rewrite Apache vhost (port and paths may have changed in code)
     echo "Updating Apache configuration..."
@@ -209,11 +272,7 @@ if [[ $UPDATE -eq 1 ]]; then
     <Directory ${WEB_ROOT}>
         Options -Indexes
         AllowOverride None
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
+        Require all granted
     </Directory>
 
     ScriptAlias /cgi-bin/ ${CGI_DIR}/
@@ -221,17 +280,8 @@ if [[ $UPDATE -eq 1 ]]; then
     <Directory ${CGI_DIR}>
         Options +ExecCGI
         AddHandler cgi-script .cgi
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
-    </Directory>
-
-    # Enrollment endpoint — protected by token, not basic auth
-    <Location /cgi-bin/enroll.cgi>
         Require all granted
-    </Location>
+    </Directory>
 
     ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log
     CustomLog \${APACHE_LOG_DIR}/church-monitoring-access.log combined
@@ -250,8 +300,11 @@ VHEOF
     echo "Dashboard: https://$(hostname -I | awk '{print $1}'):${PORT}/"
     echo "Enrolled clients: $CLIENTS"
     echo ""
-    echo "CA, certificates, authentication, and port unchanged."
+    echo "CA, certificates, and port unchanged. Existing dashboard accounts"
+    echo "(users.json) preserved."
     echo "Updated: dashboard, CGI scripts, admin tools, Apache vhost."
+    echo "Basic Auth (.htpasswd) has been retired in favor of the login screen —"
+    echo "log in at https://<host>:${PORT}/login.html"
     exit 0
 fi
 
@@ -337,34 +390,12 @@ fi
 chmod 600 "$DASH_KEY"
 chmod 644 "$DASH_CERT"
 
-# ── HTTP basic auth ──────────────────────────────────────────────────
-echo "Step 6/8: Configuring dashboard authentication..."
-HTPASSWD="$CONF_DIR/.htpasswd"
-if [[ -f "$HTPASSWD" ]]; then
-    echo "  .htpasswd already exists — skipping. Use manage-auth.sh to change."
-else
-    read -r -p "  Dashboard username [admin]: " AUTH_USER
-    AUTH_USER="${AUTH_USER:-admin}"
-    while true; do
-        read -r -s -p "  Dashboard password: " AUTH_PASS
-        echo ""
-        if [[ -z "$AUTH_PASS" ]]; then
-            echo "  Password cannot be empty."
-            continue
-        fi
-        read -r -s -p "  Confirm password: " AUTH_PASS2
-        echo ""
-        if [[ "$AUTH_PASS" != "$AUTH_PASS2" ]]; then
-            echo "  Passwords do not match. Try again."
-            continue
-        fi
-        break
-    done
-    echo "$AUTH_PASS" | htpasswd -i -c "$HTPASSWD" "$AUTH_USER"
-    chmod 640 "$HTPASSWD"
-    chown root:www-data "$HTPASSWD"
-    echo "  Authentication configured for user: $AUTH_USER"
-fi
+# ── Dashboard login accounts ─────────────────────────────────────────
+echo "Step 6/8: Configuring dashboard login..."
+bootstrap_users_json
+mkdir -p "$CONF_DIR/sessions"
+chmod 750 "$CONF_DIR/sessions"
+chown root:www-data "$CONF_DIR/sessions"
 
 # ── Install web files ────────────────────────────────────────────────
 echo "Step 7/8: Installing dashboard and CGI scripts..."
@@ -372,10 +403,21 @@ echo "Step 7/8: Installing dashboard and CGI scripts..."
 # Dashboard
 cp "$SCRIPT_DIR/index.html" "$WEB_ROOT/index.html"
 cp "$SCRIPT_DIR/help.html" "$WEB_ROOT/help.html"
+cp "$SCRIPT_DIR/login.html" "$WEB_ROOT/login.html"
 chown -R www-data:www-data "$WEB_ROOT"
+
+mkdir -p "$LIB_DIR"
+cp "$SCRIPT_DIR/auth-lib.sh" "$LIB_DIR/auth-lib.sh"
+chmod 644 "$LIB_DIR/auth-lib.sh"
+chown root:root "$LIB_DIR/auth-lib.sh"
 
 # CGI scripts
 cp "$SCRIPT_DIR/enroll.cgi" "$CGI_DIR/enroll.cgi"
+cp "$SCRIPT_DIR/login.cgi" "$CGI_DIR/login.cgi"
+cp "$SCRIPT_DIR/logout.cgi" "$CGI_DIR/logout.cgi"
+cp "$SCRIPT_DIR/whoami.cgi" "$CGI_DIR/whoami.cgi"
+cp "$SCRIPT_DIR/change-password.cgi" "$CGI_DIR/change-password.cgi"
+cp "$SCRIPT_DIR/users.cgi" "$CGI_DIR/users.cgi"
 cp "$SCRIPT_DIR/fetch-status.cgi" "$CGI_DIR/fetch-status.cgi"
 cp "$SCRIPT_DIR/fetch-cec.cgi" "$CGI_DIR/fetch-cec.cgi"
 cp "$SCRIPT_DIR/cec-control.cgi" "$CGI_DIR/cec-control.cgi"
@@ -406,8 +448,7 @@ fi
 # Admin scripts
 cp "$SCRIPT_DIR/generate-token.sh" /usr/local/bin/generate-token.sh
 cp "$SCRIPT_DIR/sign-csr.sh" /usr/local/bin/sign-csr.sh
-cp "$SCRIPT_DIR/manage-auth.sh" /usr/local/bin/manage-auth.sh
-chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh /usr/local/bin/manage-auth.sh
+chmod 755 /usr/local/bin/generate-token.sh /usr/local/bin/sign-csr.sh
 
 # Initialize server config if not present
 if [[ ! -f "$CONF_DIR/server-config.json" ]]; then
@@ -433,11 +474,7 @@ cat > "$VHOST" <<VHEOF
     <Directory ${WEB_ROOT}>
         Options -Indexes
         AllowOverride None
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
+        Require all granted
     </Directory>
 
     ScriptAlias /cgi-bin/ ${CGI_DIR}/
@@ -445,17 +482,8 @@ cat > "$VHOST" <<VHEOF
     <Directory ${CGI_DIR}>
         Options +ExecCGI
         AddHandler cgi-script .cgi
-
-        AuthType Basic
-        AuthName "Church Monitoring"
-        AuthUserFile ${HTPASSWD}
-        Require valid-user
-    </Directory>
-
-    # Enrollment endpoint — protected by token, not basic auth
-    <Location /cgi-bin/enroll.cgi>
         Require all granted
-    </Location>
+    </Directory>
 
     ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log
     CustomLog \${APACHE_LOG_DIR}/church-monitoring-access.log combined
@@ -487,7 +515,7 @@ echo "=============================================="
 echo "  Server installation complete!"
 echo "=============================================="
 echo ""
-echo "Dashboard: https://$(hostname -I | awk '{print $1}'):${PORT}/"
+echo "Dashboard: https://$(hostname -I | awk '{print $1}'):${PORT}/ (redirects to login.html)"
 echo ""
 echo "Enrollment token for client setup:"
 echo ""

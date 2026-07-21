@@ -3,6 +3,9 @@
 # Called by the dashboard with ?host=<client_name>
 # Returns the JPEG image directly (or JSON error).
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 CONFIG="/etc/church-monitoring/server-config.json"
 CERT="/etc/church-monitoring/ssl/server.crt"
 KEY="/etc/church-monitoring/ssl/server.key"

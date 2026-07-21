@@ -99,6 +99,24 @@ button:disabled{opacity:0.5;cursor:default}
 .dev-card a.card-name{color:#4aa3df;text-decoration:none}
 .dev-card a.card-name:hover{text-decoration:underline}
 .ext-icon{font-size:11px;opacity:.7}
+.user-bar{display:flex;align-items:center;gap:10px;font-size:12px;color:#a0a0c0;margin-left:auto}
+.user-bar .role-badge{background:#0f3460;border-radius:4px;padding:2px 7px;font-size:11px;text-transform:capitalize}
+.user-bar a, .user-bar button.link-btn{color:#7eb8da;text-decoration:none;background:none;border:none;padding:0;font-size:12px;cursor:pointer}
+.user-bar a:hover, .user-bar button.link-btn:hover{text-decoration:underline}
+.auth-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center}
+.auth-panel.open{display:flex}
+.auth-panel-inner{background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:18px;min-width:280px;max-width:90vw;max-height:85vh;overflow:auto}
+.auth-panel-inner h2{font-size:15px;margin-bottom:10px}
+.auth-panel-inner label{display:block;font-size:11px;color:#ccc;margin-top:8px}
+.auth-panel-inner input{width:100%;margin-top:3px;padding:5px;border-radius:4px;border:1px solid #0f3460;background:#0a1a35;color:#e0e0e0}
+.auth-panel-actions{margin-top:12px;display:flex;gap:8px;justify-content:flex-end}
+.users-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.users-table th,.users-table td{text-align:left;padding:5px 8px;border-bottom:1px solid #0f3460}
+.users-table td.actions-cell{display:flex;gap:4px;flex-wrap:wrap}
+.badge-locked{background:#c0392b;border-radius:4px;padding:1px 6px;font-size:10px}
+.add-user-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.add-user-form label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
+.add-user-form input,.add-user-form select{padding:5px;border-radius:4px;border:1px solid #0f3460;background:#0a1a35;color:#e0e0e0}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
 .screenshot-area{width:100%}
@@ -110,7 +128,31 @@ button{padding:4px 8px;font-size:11px}
 </head>
 <body>
 
-<h1>&#128225; Church Monitoring <a href="help.html">Help</a></h1>
+<h1>&#128225; Church Monitoring <span class="user-bar" id="userBar"></span> <a href="help.html">Help</a></h1>
+
+<div class="auth-panel" id="changePasswordPanel">
+    <div class="auth-panel-inner">
+        <h2>Change Password</h2>
+        <div id="changePasswordError" class="stale"></div>
+        <label>Current password<input type="password" id="cpCurrent"></label>
+        <label>New password (min 8 characters)<input type="password" id="cpNew"></label>
+        <label>Confirm new password<input type="password" id="cpConfirm"></label>
+        <div class="auth-panel-actions">
+            <button onclick="closeChangePasswordPanel()">Cancel</button>
+            <button onclick="submitChangePassword()">Change Password</button>
+        </div>
+    </div>
+</div>
+
+<div class="auth-panel" id="manageUsersPanel">
+    <div class="auth-panel-inner" style="min-width:520px">
+        <h2>Manage Users</h2>
+        <div id="manageUsersBody">Loading&hellip;</div>
+        <div class="auth-panel-actions">
+            <button onclick="closeManageUsersPanel()">Close</button>
+        </div>
+    </div>
+</div>
 
 <div class="refresh-bar">
     <button onclick="fetchAll(true)">&#x21bb; Refresh All</button>
@@ -131,6 +173,197 @@ button{padding:4px 8px;font-size:11px}
 var autoTimer = null;
 var cecCache = {};  // Persistent CEC results keyed by client name
 var cecTimerInterval = null;
+var CURRENT_USER = null;
+var ROLE_RANK = {user: 1, contributor: 2, admin: 3};
+
+function hasRole(min) {
+    return !!CURRENT_USER && (ROLE_RANK[CURRENT_USER.role] || 0) >= (ROLE_RANK[min] || 99);
+}
+
+function checkAuth() {
+    return fetch('/cgi-bin/whoami.cgi', {credentials: 'same-origin'})
+        .then(function(r) {
+            if (!r.ok) {
+                window.location.href = 'login.html';
+                return Promise.reject(new Error('not logged in'));
+            }
+            return r.json();
+        })
+        .then(function(data) {
+            CURRENT_USER = data;
+            renderUserBar();
+        });
+}
+
+function renderUserBar() {
+    var bar = document.getElementById('userBar');
+    if (!bar || !CURRENT_USER) return;
+    var html = escapeHtml(CURRENT_USER.username) + ' <span class="role-badge">' + escapeHtml(CURRENT_USER.role) + '</span>';
+    html += ' <button class="link-btn" onclick="openChangePasswordPanel()">Change Password</button>';
+    if (hasRole('admin')) {
+        html += ' <button class="link-btn" onclick="openManageUsersPanel()">Manage Users</button>';
+    }
+    html += ' <a href="#" onclick="doLogout();return false;">Logout</a>';
+    bar.innerHTML = html;
+}
+
+function doLogout() {
+    fetch('/cgi-bin/logout.cgi', {credentials: 'same-origin'}).finally(function() {
+        window.location.href = 'login.html';
+    });
+}
+
+function openChangePasswordPanel() {
+    document.getElementById('cpCurrent').value = '';
+    document.getElementById('cpNew').value = '';
+    document.getElementById('cpConfirm').value = '';
+    document.getElementById('changePasswordError').textContent = '';
+    document.getElementById('changePasswordPanel').classList.add('open');
+}
+
+function closeChangePasswordPanel() {
+    document.getElementById('changePasswordPanel').classList.remove('open');
+}
+
+function submitChangePassword() {
+    var current = document.getElementById('cpCurrent').value;
+    var next = document.getElementById('cpNew').value;
+    var confirmVal = document.getElementById('cpConfirm').value;
+    var errEl = document.getElementById('changePasswordError');
+    errEl.textContent = '';
+
+    if (!current || !next) { errEl.textContent = 'All fields are required.'; return; }
+    if (next.length < 8) { errEl.textContent = 'New password must be at least 8 characters.'; return; }
+    if (next !== confirmVal) { errEl.textContent = 'New password and confirmation do not match.'; return; }
+
+    fetch('/cgi-bin/change-password.cgi', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({current_password: current, new_password: next})
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { errEl.textContent = data.error; return; }
+            closeChangePasswordPanel();
+            alert('Password changed.');
+        })
+        .catch(function(err) { errEl.textContent = 'Failed: ' + err; });
+}
+
+function openManageUsersPanel() {
+    document.getElementById('manageUsersPanel').classList.add('open');
+    loadManageUsersPanel();
+}
+
+function closeManageUsersPanel() {
+    document.getElementById('manageUsersPanel').classList.remove('open');
+}
+
+function loadManageUsersPanel() {
+    var body = document.getElementById('manageUsersBody');
+    body.innerHTML = '<span class="spinner"></span> Loading&hellip;';
+    fetch('/cgi-bin/users.cgi?action=list', {credentials: 'same-origin'})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { body.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>'; return; }
+            renderManageUsers(data.users || []);
+        })
+        .catch(function(err) { body.innerHTML = '<small>&#9888; Failed to load: ' + escapeHtml(String(err)) + '</small>'; });
+}
+
+function usersAction(action, payload) {
+    return fetch('/cgi-bin/users.cgi?action=' + encodeURIComponent(action), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    }).then(function(r) { return r.json(); });
+}
+
+function renderManageUsers(users) {
+    var body = document.getElementById('manageUsersBody');
+    var html = '<table class="users-table"><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead><tbody>';
+    users.forEach(function(u) {
+        html += '<tr>';
+        html += '<td>' + escapeHtml(u.username) + '</td>';
+        html += '<td>' + escapeHtml(u.role) + '</td>';
+        html += '<td>' + (u.locked ? '<span class="badge-locked">locked</span>' : 'active') +
+            (u.failed_attempts > 0 ? ' <small class="stale">(' + u.failed_attempts + ' failed)</small>' : '') + '</td>';
+        html += '<td><small class="stale">' + escapeHtml(u.last_login || 'never') + '</small></td>';
+        html += '<td class="actions-cell">';
+        html += '<button onclick="userSetRole(\'' + escapeAttr(u.username) + '\')">Set Role</button>';
+        html += '<button onclick="userResetPassword(\'' + escapeAttr(u.username) + '\')">Reset Password</button>';
+        if (u.locked) {
+            html += '<button onclick="userUnlock(\'' + escapeAttr(u.username) + '\')">Unlock</button>';
+        } else {
+            html += '<button onclick="userLock(\'' + escapeAttr(u.username) + '\')">Lock</button>';
+        }
+        html += '<button class="btn-danger" onclick="userRemove(\'' + escapeAttr(u.username) + '\')">Remove</button>';
+        html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="add-user-form">';
+    html += '<label>Username<input type="text" id="newUserName"></label>';
+    html += '<label>Password<input type="password" id="newUserPass"></label>';
+    html += '<label>Role<select id="newUserRole"><option value="user">user</option><option value="contributor">contributor</option><option value="admin">admin</option></select></label>';
+    html += '<button onclick="userAdd()">Add User</button>';
+    html += '</div>';
+    html += '<div id="manageUsersError" class="stale"></div>';
+    body.innerHTML = html;
+}
+
+function userAdd() {
+    var username = document.getElementById('newUserName').value.trim();
+    var password = document.getElementById('newUserPass').value;
+    var role = document.getElementById('newUserRole').value;
+    usersAction('add', {username: username, password: password, role: role}).then(function(data) {
+        var errEl = document.getElementById('manageUsersError');
+        if (data.error) { errEl.textContent = data.error; return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userSetRole(username) {
+    var role = prompt('New role for ' + username + ' (user, contributor, admin):');
+    if (!role) return;
+    usersAction('set-role', {username: username, role: role.trim()}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userResetPassword(username) {
+    var pass = prompt('New password for ' + username + ' (min 8 characters):');
+    if (!pass) return;
+    usersAction('set-password', {username: username, new_password: pass}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userLock(username) {
+    if (!confirm('Lock account "' + username + '"?')) return;
+    usersAction('lock', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userUnlock(username) {
+    usersAction('unlock', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userRemove(username) {
+    if (!confirm('Remove account "' + username + '"? This cannot be undone.')) return;
+    usersAction('remove', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
 
 function formatUptime(s) {
     if (!s && s !== 0) return '—';
@@ -200,35 +433,42 @@ function renderMenu(name, data) {
     m += '<button class="menu-btn" title="Actions" onclick="toggleMenu(event,\'' + n + '\')">&#9776;</button>';
     m += '<div class="menu-dropdown" id="menu-' + n + '">';
 
-    // Backup actions (always available)
+    // Backup actions
     m += '<div class="menu-label">Backup</div>';
-    m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
+    if (hasRole('contributor')) {
+        m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
+    }
     m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
 
     // Restart entries for each monitored systemd service
     var systemd = (data.services || []).filter(function(svc) { return svc.type === 'systemd'; });
-    if (systemd.length) {
+    if (systemd.length && hasRole('contributor')) {
         m += '<div class="menu-sep"></div><div class="menu-label">Restart service</div>';
         systemd.forEach(function(svc) {
             m += '<button class="menu-item" onclick="restartServiceMenu(\'' + n + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb; ' + escapeHtml(svc.name) + '</button>';
         });
     }
 
-    // CEC submenu (if enabled on this client)
+    // CEC submenu (if enabled on this client) — status check is read-only and
+    // available to everyone; the control actions require contributor.
     if (data.cec_enabled) {
         m += '<div class="menu-sep"></div>';
         m += '<button class="menu-item" onclick="toggleSub(event,\'' + n + '\')">&#128250; TV (CEC) &#9656;</button>';
         m += '<div class="menu-sub" id="sub-' + n + '">';
         m += '<button class="menu-item" onclick="checkCecMenu(\'' + n + '\')">Check status</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'on\')">&#9654; Power on</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'standby\')">&#9724; Standby</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'active\')">&#127909; Active input</button>';
+        if (hasRole('contributor')) {
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'on\')">&#9654; Power on</button>';
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'standby\')">&#9724; Standby</button>';
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'active\')">&#127909; Active input</button>';
+        }
         m += '</div>';
     }
 
     // Reboot (destructive)
-    m += '<div class="menu-sep"></div>';
-    m += '<button class="menu-item danger" onclick="rebootHostMenu(\'' + n + '\')">&#x23FB; Reboot host</button>';
+    if (hasRole('contributor')) {
+        m += '<div class="menu-sep"></div>';
+        m += '<button class="menu-item danger" onclick="rebootHostMenu(\'' + n + '\')">&#x23FB; Reboot host</button>';
+    }
 
     m += '</div></div>';
     return m;
@@ -341,11 +581,13 @@ function renderCard(data) {
     });
     if (hasVlc || hasMidori) {
         html += '<span class="btn-group">';
-        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
-        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+        if (hasRole('contributor')) {
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+        }
         html += '</span>';
     }
-    if (hasMidori) {
+    if (hasMidori && hasRole('contributor')) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
     }
     if (data.calendar_images) {
@@ -774,12 +1016,15 @@ function renderImagesPanel(host, data, panel) {
     var id = safeId(host);
     var images = data.images || [];
 
-    var html = '<div class="images-upload">';
-    html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
-    html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
-    html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
-    html += '</div>';
-    html += '<div id="img-upload-status-' + id + '"></div>';
+    var html = '';
+    if (hasRole('contributor')) {
+        html += '<div class="images-upload">';
+        html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+        html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
+        html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
+        html += '</div>';
+        html += '<div id="img-upload-status-' + id + '"></div>';
+    }
 
     if (data.stale > 0) {
         html += '<div class="cal-info-warn">&#9888; ' + data.stale + ' of ' + data.total + ' image(s) are past their removal date.</div>';
@@ -798,7 +1043,9 @@ function renderImagesPanel(host, data, panel) {
             }
             html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (img.stale) html += '<span class="badge badge-warn">stale</span>';
-            html += '<div><button class="btn-danger" style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="deleteCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Delete</button></div>';
+            if (hasRole('contributor')) {
+                html += '<div><button class="btn-danger" style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="deleteCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Delete</button></div>';
+            }
             html += '</div>';
         });
         html += '</div>';
@@ -929,11 +1176,16 @@ function fetchJson(url) {
     });
 }
 
-// Initial fetch
-fetchAll();
-cecTimerInterval = setInterval(updateCecTimers, 1000);
+// Initial fetch — gated behind a valid login session; checkAuth() redirects
+// to login.html if the whoami.cgi check comes back 401.
+checkAuth().then(function() {
+    fetchAll();
+    cecTimerInterval = setInterval(updateCecTimers, 1000);
 
-// Auto-refresh
+    // Auto-refresh
+    resetAutoRefresh();
+});
+
 function resetAutoRefresh() {
     if (autoTimer) clearInterval(autoTimer);
     var cb = document.getElementById('autoRefresh');
@@ -942,7 +1194,6 @@ function resetAutoRefresh() {
     }
 }
 document.getElementById('autoRefresh').addEventListener('change', resetAutoRefresh);
-resetAutoRefresh();
 </script>
 
 </body>

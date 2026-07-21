@@ -60,7 +60,7 @@ pre{background:#0f3460;padding:10px;border-radius:6px;overflow-x:auto;font-size:
     <li>Create a Certificate Authority (CA) for mutual TLS</li>
     <li>Generate the server's client certificate</li>
     <li>Configure the dashboard Apache vhost (default port 8080)</li>
-    <li>Set up HTTP basic authentication</li>
+    <li>Bootstrap the initial admin login account (role-based: user/contributor/admin)</li>
     <li>Generate the first enrollment token</li>
 </ol>
 <p>Note the enrollment token displayed at the end — you'll need it for client setup.</p>
@@ -130,9 +130,24 @@ pre{background:#0f3460;padding:10px;border-radius:6px;overflow-x:auto;font-size:
     <li><b>CEC</b> — TV power and HDMI input (on-demand only)</li>
 </ul>
 
-<h2>Password Management</h2>
-<p>To change the dashboard password or add users:</p>
-<pre>sudo /usr/local/bin/manage-auth.sh</pre>
+<h2>User Accounts &amp; Roles</h2>
+<p>The dashboard has its own login screen (<code>login.html</code>) with per-account
+    sessions — there are three roles:</p>
+<ul>
+    <li><b>user</b> — read-only: can view status, screenshots, backups, and calendar images</li>
+    <li><b>contributor</b> — everything a user can do, plus actions: reboot, restart
+        services, CEC control, mode-switch, calendar settings, backup creation, and
+        calendar image upload/delete</li>
+    <li><b>admin</b> — everything a contributor can do, plus managing user accounts:
+        add/remove users, change roles, reset passwords, and lock/unlock accounts</li>
+</ul>
+<p>Any logged-in user can change their own password from the dashboard header
+    (requires knowing the current password). Admins manage accounts from the
+    "Manage Users" panel, visible only to admins.</p>
+<p>Signing in with the wrong password 5 times in a row locks the account out
+    temporarily, with an exponentially increasing wait (30s, 1m, 2m, 4m, ... capped
+    at 30 minutes) for each additional failed attempt. An admin can also lock an
+    account manually at any time.</p>
 
 <h2>Troubleshooting</h2>
 <h3>Dashboard shows "unreachable" for a client</h3>
@@ -164,7 +179,8 @@ Server:
   /etc/church-monitoring/ca/                   CA certificate and key
   /etc/church-monitoring/ssl/                  Server client certificate
   /etc/church-monitoring/tokens/               Enrollment tokens
-  /etc/church-monitoring/.htpasswd             Dashboard credentials
+  /etc/church-monitoring/users.json            Dashboard accounts (hashed passwords)
+  /etc/church-monitoring/sessions/             Active login sessions
   /var/www/church-monitoring/                  Dashboard web root
     /usr/lib/cgi-bin/church-monitoring-server/   Server CGI scripts
 

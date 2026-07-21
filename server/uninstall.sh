@@ -7,6 +7,7 @@ CONF_DIR="/etc/church-monitoring"
 WEB_ROOT="/var/www/church-monitoring"
 CGI_DIR="/usr/lib/cgi-bin/church-monitoring-server"
 LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
+LIB_DIR="/usr/local/lib/church-monitoring"
 VHOST="/etc/apache2/sites-available/church-monitoring-server.conf"
 
 show_help() {
@@ -37,8 +38,8 @@ if [[ $FORCE -eq 0 ]]; then
     echo "  - Apache vhost and site config"
     echo "  - Dashboard files ($WEB_ROOT)"
     echo "  - CGI scripts ($CGI_DIR)"
-    echo "  - Certificates, CA, tokens ($CONF_DIR)"
-    echo "  - Admin scripts (generate-token.sh, sign-csr.sh, manage-auth.sh)"
+    echo "  - Certificates, CA, tokens, user accounts, sessions ($CONF_DIR)"
+    echo "  - Admin scripts (generate-token.sh, sign-csr.sh)"
     echo ""
     read -r -p "Are you sure? [y/N]: " CONFIRM
     if [[ ! "$CONFIRM" =~ ^[Yy] ]]; then
@@ -82,6 +83,12 @@ fi
 if [[ -d "$LEGACY_CGI_DIR" ]]; then
     echo "Removing legacy CGI directory..."
     rm -rf "$LEGACY_CGI_DIR"
+fi
+
+# Remove the shared auth library
+if [[ -d "$LIB_DIR" ]]; then
+    echo "Removing shared library files..."
+    rm -rf "$LIB_DIR"
 fi
 
 # Remove admin scripts

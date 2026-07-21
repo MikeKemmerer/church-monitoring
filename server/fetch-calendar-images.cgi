@@ -2,6 +2,9 @@
 # fetch-calendar-images.cgi — Proxies the calendar image list to a specific
 # client. Called by the dashboard with ?host=<client_name>
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 echo "Content-Type: application/json"
 echo ""
 

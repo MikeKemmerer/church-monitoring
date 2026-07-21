@@ -2,6 +2,9 @@
 # delete-calendar-image.cgi — Proxies a calendar image deletion to a client.
 # Called with ?host=<client_name>&filename=<name>
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 

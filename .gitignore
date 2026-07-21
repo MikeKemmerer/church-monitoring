@@ -9,6 +9,12 @@ server/config.json
 server/config.*.json
 !server/config.example.json
 
+# Dashboard user accounts (password hashes) and session files — never commit
+# real ones. server/users.example.json is a schema reference and stays tracked.
+server/users.json
+!server/users.example.json
+server/sessions/
+
 # Certificates and keys
 *.pem
 *.key

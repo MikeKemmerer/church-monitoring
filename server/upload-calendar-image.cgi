@@ -3,6 +3,9 @@
 # Called with ?host=<client_name>; the POST body is forwarded as-is (JSON:
 # {"filename":"...","data_base64":"..."}).
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 

@@ -2,6 +2,9 @@
 # cec-control.cgi — Proxies CEC control commands to a specific client.
 # Called by the dashboard with ?host=<client_name>&action=on|standby|active
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 
