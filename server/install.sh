@@ -201,7 +201,7 @@ if [[ $UPDATE -eq 1 ]]; then
     echo "Checking dashboard login accounts..."
     bootstrap_users_json
     mkdir -p "$CONF_DIR/sessions"
-    chmod 750 "$CONF_DIR/sessions"
+    chmod 770 "$CONF_DIR/sessions"
     chown root:www-data "$CONF_DIR/sessions"
     echo ""
 
@@ -399,7 +399,7 @@ chmod 644 "$DASH_CERT"
 echo "Step 6/8: Configuring dashboard login..."
 bootstrap_users_json
 mkdir -p "$CONF_DIR/sessions"
-chmod 750 "$CONF_DIR/sessions"
+chmod 770 "$CONF_DIR/sessions"
 chown root:www-data "$CONF_DIR/sessions"
 
 # ── Install web files ────────────────────────────────────────────────
