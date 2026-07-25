@@ -169,6 +169,37 @@ bootstrap_users_json() {
     echo "  Admin account '$INIT_USER' created."
 }
 
+# ── Reassert ownership/permissions on every security-sensitive path ───
+# Idempotent and safe to call unconditionally (each check is guarded by
+# -f/-d, so it's a no-op for anything that doesn't exist yet). Called from
+# both the fresh-install and --update flows so that if any of these ever
+# get "out of sorts" (manually chmod'd, restored from a backup with the
+# wrong mode, etc.) a simple `--update` run self-heals them, rather than
+# only being set once at creation time and never revisited.
+reassert_permissions() {
+    [[ -d "$CA_DIR" ]] && { chown root:www-data "$CA_DIR"; chmod 750 "$CA_DIR"; }
+    [[ -d "$SSL_DIR" ]] && { chown root:www-data "$SSL_DIR"; chmod 750 "$SSL_DIR"; }
+    [[ -d "$TOKEN_DIR" ]] && { chown root:www-data "$TOKEN_DIR"; chmod 770 "$TOKEN_DIR"; }
+    [[ -d "$CONF_DIR/signed-certs" ]] && { chown root:www-data "$CONF_DIR/signed-certs"; chmod 770 "$CONF_DIR/signed-certs"; }
+    [[ -d "$CONF_DIR/sessions" ]] && { chown root:www-data "$CONF_DIR/sessions"; chmod 770 "$CONF_DIR/sessions"; }
+
+    [[ -f "$CA_DIR/ca.key" ]] && { chown root:www-data "$CA_DIR/ca.key"; chmod 640 "$CA_DIR/ca.key"; }
+    [[ -f "$CA_DIR/ca.crt" ]] && { chown root:www-data "$CA_DIR/ca.crt"; chmod 644 "$CA_DIR/ca.crt"; }
+
+    # Server's own client cert (used to authenticate to agents)
+    [[ -f "$SSL_DIR/server.key" ]] && { chown root:www-data "$SSL_DIR/server.key"; chmod 640 "$SSL_DIR/server.key"; }
+    [[ -f "$SSL_DIR/server.crt" ]] && chmod 644 "$SSL_DIR/server.crt"
+
+    # Dashboard TLS cert -- read by Apache's root master process before it
+    # drops privileges, so root:root is correct (no www-data group needed).
+    [[ -f "$SSL_DIR/dashboard.key" ]] && chmod 600 "$SSL_DIR/dashboard.key"
+    [[ -f "$SSL_DIR/dashboard.crt" ]] && chmod 644 "$SSL_DIR/dashboard.crt"
+
+    # Config files the CGIs write to at runtime
+    [[ -f "$CONF_DIR/server-config.json" ]] && { chown root:www-data "$CONF_DIR/server-config.json"; chmod 660 "$CONF_DIR/server-config.json"; }
+    [[ -f "$CONF_DIR/users.json" ]] && { chown root:www-data "$CONF_DIR/users.json"; chmod 640 "$CONF_DIR/users.json"; }
+}
+
 echo "=== Church Monitoring Server Installer ==="
 echo ""
 
@@ -201,8 +232,7 @@ if [[ $UPDATE -eq 1 ]]; then
     echo "Checking dashboard login accounts..."
     bootstrap_users_json
     mkdir -p "$CONF_DIR/sessions"
-    chmod 770 "$CONF_DIR/sessions"
-    chown root:www-data "$CONF_DIR/sessions"
+    reassert_permissions
     echo ""
 
     # Install web files and scripts
@@ -456,6 +486,8 @@ if [[ ! -f "$CONF_DIR/server-config.json" ]]; then
 fi
 chown root:www-data "$CONF_DIR/server-config.json"
 chmod 660 "$CONF_DIR/server-config.json"
+
+reassert_permissions
 
 # ── Apache vhost ──────────────────────────────────────────────────────
 echo "Step 8/8: Configuring Apache..."
