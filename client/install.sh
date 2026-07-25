@@ -425,10 +425,13 @@ REQUIRED_CGI=(
     calendar-settings.cgi
     list-calendar-images.cgi
     list-archived-calendar-images.cgi
+    list-evergreen-images.cgi
     fetch-calendar-image.cgi
     upload-calendar-image.cgi
     archive-calendar-image.cgi
     restore-calendar-image.cgi
+    store-evergreen-image.cgi
+    activate-evergreen-image.cgi
     backup.cgi
     backup-download.cgi
 )
@@ -482,9 +485,10 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-calendar
     > /etc/sudoers.d/church-monitoring-calendar-settings
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-settings
 
-# Install calendar image management helpers (write/archive/restore as the
-# church-calendar owner, then regenerate optimized/thumbnail derivatives)
-for HELPER in church-monitoring-write-calendar-image church-monitoring-archive-calendar-image church-monitoring-restore-calendar-image; do
+# Install calendar image management helpers (write/archive/restore/store/
+# activate as the church-calendar owner, then regenerate optimized/
+# thumbnail derivatives)
+for HELPER in church-monitoring-write-calendar-image church-monitoring-archive-calendar-image church-monitoring-restore-calendar-image church-monitoring-store-evergreen-image church-monitoring-activate-evergreen-image; do
     cp "$SCRIPT_DIR/$HELPER" "/usr/local/bin/$HELPER"
     sed -i 's/\r$//' "/usr/local/bin/$HELPER"
     chmod 755 "/usr/local/bin/$HELPER"
@@ -498,6 +502,8 @@ cat > /etc/sudoers.d/church-monitoring-calendar-images <<'SUDOEOF'
 www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-write-calendar-image
 www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-archive-calendar-image
 www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-restore-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-store-evergreen-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-activate-evergreen-image
 SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-images
 

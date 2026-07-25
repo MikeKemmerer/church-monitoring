@@ -55,16 +55,6 @@ while IFS= read -r f; do
         STALE="true"
     fi
 
-    # An explicit "EVERGREEN " filename prefix marks an image that should
-    # never be treated as stale/removable -- distinct from a legacy file
-    # that simply never got a date prefix (event_date is null either way,
-    # but only this case reports evergreen:true so the UI can show a
-    # deliberate badge instead of guessing).
-    EVERGREEN="false"
-    case "$BASENAME" in
-        "EVERGREEN "*) EVERGREEN="true" ;;
-    esac
-
     # Prefer the larger 'optimized' WebP (up to 800x600 @ quality 85, already
     # generated for the calendar's own slideshow) over the tiny 50x50 thumbnail
     # so previews in the dashboard aren't blurry.
@@ -84,13 +74,11 @@ while IFS= read -r f; do
         --arg mtime "$MTIME" \
         --arg event_date "$FILE_DATE" \
         --argjson stale "$STALE" \
-        --argjson evergreen "$EVERGREEN" \
         --argjson has_thumb "$HAS_THUMB" \
         --rawfile thumb_b64 "$THUMB_B64_FILE" \
         '{filename:$filename, size:$size, mtime:$mtime,
           event_date: (if $event_date == "" then null else $event_date end),
           stale:$stale,
-          evergreen:$evergreen,
           thumbnail: (if $has_thumb then ("data:image/webp;base64," + $thumb_b64) else null end)}' \
         >> "$ENTRIES_FILE"
 done < <(find "$IMAGES_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.gif" -o -iname "*.webp" \) 2>/dev/null | sort)

@@ -91,6 +91,8 @@ rm -f /usr/local/bin/church-monitoring-set-calendar-settings
 rm -f /usr/local/bin/church-monitoring-write-calendar-image
 rm -f /usr/local/bin/church-monitoring-archive-calendar-image
 rm -f /usr/local/bin/church-monitoring-restore-calendar-image
+rm -f /usr/local/bin/church-monitoring-store-evergreen-image
+rm -f /usr/local/bin/church-monitoring-activate-evergreen-image
 rm -f /usr/local/bin/church-monitoring-delete-calendar-image
 rm -f /etc/sudoers.d/church-monitoring-screenshot
 rm -f /etc/sudoers.d/church-monitoring-restart

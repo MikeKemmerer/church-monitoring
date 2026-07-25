@@ -30,6 +30,10 @@ ARCHIVED=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^archived=" | cut -d= -f2-
 ARCHIVED_QS=""
 [ "$ARCHIVED" = "1" ] && ARCHIVED_QS="&archived=1"
 
+EVERGREEN=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^evergreen=" | cut -d= -f2- | head -1)
+EVERGREEN_QS=""
+[ "$EVERGREEN" = "1" ] && EVERGREEN_QS="&evergreen=1"
+
 [ ! -f "$CONFIG" ] && json_error "server-config.json not found"
 
 CLIENT=$(jq -c --arg name "$TARGET_CLEAN" '.clients[] | select(.name == $name)' "$CONFIG" 2>/dev/null)
@@ -43,7 +47,7 @@ TMPFILE=$(mktemp /tmp/church-monitoring-proxy-calimg-XXXXXX)
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 15 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
     -o "$TMPFILE" -w "%{http_code}" \
-    "https://${HOST}:${PORT}/cgi-bin/fetch-calendar-image.cgi?filename=${RAW_FILENAME}${ARCHIVED_QS}" 2>/dev/null) || true
+    "https://${HOST}:${PORT}/cgi-bin/fetch-calendar-image.cgi?filename=${RAW_FILENAME}${ARCHIVED_QS}${EVERGREEN_QS}" 2>/dev/null) || true
 
 if [ "$HTTP_CODE" != "200" ] || [ ! -s "$TMPFILE" ]; then
     rm -f "$TMPFILE"

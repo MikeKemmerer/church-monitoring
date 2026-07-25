@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # fetch-calendar-image.cgi - Serves one original calendar image as binary.
 # Accepts ?filename=X (basename only, must exist in the configured images
-# folder) and optionally &archived=1 to serve from images/archive/ instead.
-# Used for "view full size" from the dashboard's image panel, and directly
-# as the archive panel's thumbnail <img> src (no separate preview generated
-# for archived images).
+# folder) and optionally &archived=1 or &evergreen=1 to serve from
+# images/archive/ or images/evergreen/ instead. Used for "view full size"
+# from the dashboard's image panel, and directly as the archive/evergreen
+# panels' thumbnail <img> src (no separate preview generated for those).
 
 CONFIG="/etc/church-monitoring/client-config.json"
 
@@ -32,6 +32,7 @@ url_decode() {
 FILENAME=$(url_decode "$RAW_FILENAME")
 
 ARCHIVED=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^archived=" | cut -d= -f2- | head -1)
+EVERGREEN=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^evergreen=" | cut -d= -f2- | head -1)
 
 # Basename only -- reject any path traversal attempt outright.
 SAFE_NAME=$(basename "$FILENAME")
@@ -41,6 +42,8 @@ fi
 
 if [ "$ARCHIVED" = "1" ]; then
     TARGET="$IMAGES_DIR/archive/$SAFE_NAME"
+elif [ "$EVERGREEN" = "1" ]; then
+    TARGET="$IMAGES_DIR/evergreen/$SAFE_NAME"
 else
     TARGET="$IMAGES_DIR/$SAFE_NAME"
 fi

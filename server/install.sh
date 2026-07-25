@@ -270,6 +270,9 @@ if [[ $UPDATE -eq 1 ]]; then
     cp "$SCRIPT_DIR/archive-calendar-image.cgi" "$CGI_DIR/archive-calendar-image.cgi"
     cp "$SCRIPT_DIR/restore-calendar-image.cgi" "$CGI_DIR/restore-calendar-image.cgi"
     cp "$SCRIPT_DIR/fetch-archived-calendar-images.cgi" "$CGI_DIR/fetch-archived-calendar-images.cgi"
+    cp "$SCRIPT_DIR/store-evergreen-image.cgi" "$CGI_DIR/store-evergreen-image.cgi"
+    cp "$SCRIPT_DIR/activate-evergreen-image.cgi" "$CGI_DIR/activate-evergreen-image.cgi"
+    cp "$SCRIPT_DIR/fetch-evergreen-images.cgi" "$CGI_DIR/fetch-evergreen-images.cgi"
     chmod 755 "$CGI_DIR"/*.cgi
     chown -R www-data:www-data "$CGI_DIR"
 
@@ -468,6 +471,9 @@ cp "$SCRIPT_DIR/upload-calendar-image.cgi" "$CGI_DIR/upload-calendar-image.cgi"
 cp "$SCRIPT_DIR/archive-calendar-image.cgi" "$CGI_DIR/archive-calendar-image.cgi"
 cp "$SCRIPT_DIR/restore-calendar-image.cgi" "$CGI_DIR/restore-calendar-image.cgi"
 cp "$SCRIPT_DIR/fetch-archived-calendar-images.cgi" "$CGI_DIR/fetch-archived-calendar-images.cgi"
+cp "$SCRIPT_DIR/store-evergreen-image.cgi" "$CGI_DIR/store-evergreen-image.cgi"
+cp "$SCRIPT_DIR/activate-evergreen-image.cgi" "$CGI_DIR/activate-evergreen-image.cgi"
+cp "$SCRIPT_DIR/fetch-evergreen-images.cgi" "$CGI_DIR/fetch-evergreen-images.cgi"
 chmod 755 "$CGI_DIR"/*.cgi
 chown -R www-data:www-data "$CGI_DIR"
 
