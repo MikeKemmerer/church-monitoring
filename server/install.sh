@@ -164,7 +164,7 @@ bootstrap_users_json() {
     jq -n --arg u "$INIT_USER" --arg h "$INIT_HASH" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{"users":[{"username":$u,"password_hash":$h,"role":"admin","locked":false,"failed_attempts":0,"lockout_until":0,"created":$t,"last_login":null}]}' \
         > "$CONF_DIR/users.json"
-    chmod 640 "$CONF_DIR/users.json"
+    chmod 660 "$CONF_DIR/users.json"
     chown root:www-data "$CONF_DIR/users.json"
     echo "  Admin account '$INIT_USER' created."
 }
@@ -197,7 +197,7 @@ reassert_permissions() {
 
     # Config files the CGIs write to at runtime
     [[ -f "$CONF_DIR/server-config.json" ]] && { chown root:www-data "$CONF_DIR/server-config.json"; chmod 660 "$CONF_DIR/server-config.json"; }
-    [[ -f "$CONF_DIR/users.json" ]] && { chown root:www-data "$CONF_DIR/users.json"; chmod 640 "$CONF_DIR/users.json"; }
+    [[ -f "$CONF_DIR/users.json" ]] && { chown root:www-data "$CONF_DIR/users.json"; chmod 660 "$CONF_DIR/users.json"; }
 }
 
 echo "=== Church Monitoring Server Installer ==="
