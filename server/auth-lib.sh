@@ -165,7 +165,24 @@ require_role() {
     fi
 }
 
-# --- users.json mutation helpers (all atomic via mktemp + jq + mv) ---
+# --- users.json mutation helpers ---
+
+# Overwrites USERS_FILE's contents from a temp file, then removes the temp
+# file. Deliberately uses `cp` (writes into the EXISTING inode, requiring
+# only write permission on the file itself -- already granted via its
+# root:www-data 660 ownership) rather than `mv`/rename, which requires
+# write+execute permission on the *containing directory*
+# (/etc/church-monitoring). That directory is deliberately NOT group-
+# writable by www-data since it also holds the CA private key and other
+# sensitive material -- `mv` across the /tmp -> /etc mktemp boundary is a
+# cross-device rename anyway, which falls back to copy+unlink and fails
+# with "unable to remove target: Permission denied" for exactly this
+# reason (confirmed live in church-monitoring-error.log).
+_write_users_file() {
+    local tmp="$1"
+    cp "$tmp" "$USERS_FILE"
+    rm -f "$tmp"
+}
 
 reset_failed_attempts() {
     local username="$1"
@@ -173,7 +190,7 @@ reset_failed_attempts() {
     tmp=$(mktemp)
     jq --arg u "$username" \
         '(.users[] | select(.username == $u)) |= (.failed_attempts = 0 | .lockout_until = 0)' \
-        "$USERS_FILE" > "$tmp" && mv "$tmp" "$USERS_FILE"
+        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
 }
 
 record_failed_attempt() {
@@ -189,7 +206,7 @@ record_failed_attempt() {
     tmp=$(mktemp)
     jq --arg u "$username" --argjson fa "$attempts" --argjson lu "$until" \
         '(.users[] | select(.username == $u)) |= (.failed_attempts = $fa | .lockout_until = $lu)' \
-        "$USERS_FILE" > "$tmp" && mv "$tmp" "$USERS_FILE"
+        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
 }
 
 set_last_login() {
@@ -198,7 +215,7 @@ set_last_login() {
     tmp=$(mktemp)
     jq --arg u "$username" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '(.users[] | select(.username == $u)) |= (.last_login = $t)' \
-        "$USERS_FILE" > "$tmp" && mv "$tmp" "$USERS_FILE"
+        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
 }
 
 set_password_hash() {
@@ -207,5 +224,5 @@ set_password_hash() {
     tmp=$(mktemp)
     jq --arg u "$username" --arg h "$new_hash" \
         '(.users[] | select(.username == $u)) |= (.password_hash = $h)' \
-        "$USERS_FILE" > "$tmp" && mv "$tmp" "$USERS_FILE"
+        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
 }

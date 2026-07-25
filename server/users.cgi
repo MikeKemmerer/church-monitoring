@@ -93,7 +93,7 @@ case "$ACTION" in
         TMP=$(mktemp)
         jq --arg u "$USERNAME" --arg h "$HASH" --arg r "$ROLE" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '.users += [{"username":$u,"password_hash":$h,"role":$r,"locked":false,"failed_attempts":0,"lockout_until":0,"created":$t,"last_login":null}]' \
-            "$USERS_FILE" > "$TMP" && mv "$TMP" "$USERS_FILE"
+            "$USERS_FILE" > "$TMP" && _write_users_file "$TMP"
         json_ok "user added"
         ;;
 
@@ -110,7 +110,7 @@ case "$ACTION" in
         fi
 
         TMP=$(mktemp)
-        jq --arg u "$USERNAME" '.users |= map(select(.username != $u))' "$USERS_FILE" > "$TMP" && mv "$TMP" "$USERS_FILE"
+        jq --arg u "$USERNAME" '.users |= map(select(.username != $u))' "$USERS_FILE" > "$TMP" && _write_users_file "$TMP"
         json_ok "user removed"
         ;;
 
@@ -130,7 +130,7 @@ case "$ACTION" in
         TMP=$(mktemp)
         jq --arg u "$USERNAME" --arg r "$ROLE" \
             '(.users[] | select(.username == $u)) |= (.role = $r)' \
-            "$USERS_FILE" > "$TMP" && mv "$TMP" "$USERS_FILE"
+            "$USERS_FILE" > "$TMP" && _write_users_file "$TMP"
         json_ok "role updated"
         ;;
 
@@ -162,7 +162,7 @@ case "$ACTION" in
 
         TMP=$(mktemp)
         jq --arg u "$USERNAME" '(.users[] | select(.username == $u)) |= (.locked = true)' \
-            "$USERS_FILE" > "$TMP" && mv "$TMP" "$USERS_FILE"
+            "$USERS_FILE" > "$TMP" && _write_users_file "$TMP"
         json_ok "user locked"
         ;;
 
@@ -175,7 +175,7 @@ case "$ACTION" in
         TMP=$(mktemp)
         jq --arg u "$USERNAME" \
             '(.users[] | select(.username == $u)) |= (.locked = false | .failed_attempts = 0 | .lockout_until = 0)' \
-            "$USERS_FILE" > "$TMP" && mv "$TMP" "$USERS_FILE"
+            "$USERS_FILE" > "$TMP" && _write_users_file "$TMP"
         json_ok "user unlocked"
         ;;
 
