@@ -150,6 +150,24 @@ require_session() {
     if [ -z "$AUTH_USERNAME" ] || [ -z "$AUTH_ROLE" ]; then
         _auth_json_error "401 Unauthorized" "invalid session"
     fi
+
+    local user_json current_role locked
+    user_json=$(jq -c --arg u "$AUTH_USERNAME" '.users[] | select(.username == $u)' "$USERS_FILE" 2>/dev/null)
+    if [ -z "$user_json" ]; then
+        rm -f "$session_file"
+        _auth_json_error "401 Unauthorized" "session expired or invalid"
+    fi
+    locked=$(echo "$user_json" | jq -r '.locked // false')
+    if [ "$locked" = "true" ]; then
+        rm -f "$session_file"
+        _auth_json_error "401 Unauthorized" "session expired or invalid"
+    fi
+    current_role=$(echo "$user_json" | jq -r '.role // empty')
+    if [ -z "$current_role" ]; then
+        rm -f "$session_file"
+        _auth_json_error "401 Unauthorized" "session expired or invalid"
+    fi
+    AUTH_ROLE="$current_role"
 }
 
 # $1 = minimum role required (user|contributor|admin). Validates the session
@@ -187,42 +205,54 @@ _write_users_file() {
 reset_failed_attempts() {
     local username="$1"
     local tmp
-    tmp=$(mktemp)
-    jq --arg u "$username" \
-        '(.users[] | select(.username == $u)) |= (.failed_attempts = 0 | .lockout_until = 0)' \
-        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    {
+        flock -x 9
+        tmp=$(mktemp)
+        jq --arg u "$username" \
+            '(.users[] | select(.username == $u)) |= (.failed_attempts = 0 | .lockout_until = 0)' \
+            "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    } 9<>"$USERS_FILE"
 }
 
 record_failed_attempt() {
     local username="$1"
     local attempts lockout until tmp
-    attempts=$(jq -r --arg u "$username" '.users[] | select(.username == $u) | .failed_attempts // 0' "$USERS_FILE")
-    attempts=$((attempts + 1))
-    lockout=$(compute_lockout_seconds "$attempts")
-    until=0
-    if [ "$lockout" -gt 0 ]; then
-        until=$(( $(date +%s) + lockout ))
-    fi
-    tmp=$(mktemp)
-    jq --arg u "$username" --argjson fa "$attempts" --argjson lu "$until" \
-        '(.users[] | select(.username == $u)) |= (.failed_attempts = $fa | .lockout_until = $lu)' \
-        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    {
+        flock -x 9
+        attempts=$(jq -r --arg u "$username" '.users[] | select(.username == $u) | .failed_attempts // 0' "$USERS_FILE")
+        attempts=$((attempts + 1))
+        lockout=$(compute_lockout_seconds "$attempts")
+        until=0
+        if [ "$lockout" -gt 0 ]; then
+            until=$(( $(date +%s) + lockout ))
+        fi
+        tmp=$(mktemp)
+        jq --arg u "$username" --argjson fa "$attempts" --argjson lu "$until" \
+            '(.users[] | select(.username == $u)) |= (.failed_attempts = $fa | .lockout_until = $lu)' \
+            "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    } 9<>"$USERS_FILE"
 }
 
 set_last_login() {
     local username="$1"
     local tmp
-    tmp=$(mktemp)
-    jq --arg u "$username" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '(.users[] | select(.username == $u)) |= (.last_login = $t)' \
-        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    {
+        flock -x 9
+        tmp=$(mktemp)
+        jq --arg u "$username" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '(.users[] | select(.username == $u)) |= (.last_login = $t)' \
+            "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    } 9<>"$USERS_FILE"
 }
 
 set_password_hash() {
     local username="$1" new_hash="$2"
     local tmp
-    tmp=$(mktemp)
-    jq --arg u "$username" --arg h "$new_hash" \
-        '(.users[] | select(.username == $u)) |= (.password_hash = $h)' \
-        "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    {
+        flock -x 9
+        tmp=$(mktemp)
+        jq --arg u "$username" --arg h "$new_hash" \
+            '(.users[] | select(.username == $u)) |= (.password_hash = $h)' \
+            "$USERS_FILE" > "$tmp" && _write_users_file "$tmp"
+    } 9<>"$USERS_FILE"
 }

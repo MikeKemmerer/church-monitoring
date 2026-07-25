@@ -49,11 +49,10 @@ LOCKOUT_UNTIL=$(echo "$USER_JSON" | jq -r '.lockout_until // 0')
 NOW=$(date +%s)
 
 if [ "$LOCKED" = "true" ]; then
-    json_error "account is locked; contact an administrator"
+    json_error "invalid username or password"
 fi
 if [[ "$LOCKOUT_UNTIL" =~ ^[0-9]+$ ]] && [ "$NOW" -lt "$LOCKOUT_UNTIL" ]; then
-    WAIT=$((LOCKOUT_UNTIL - NOW))
-    json_error "too many failed attempts; try again in ${WAIT}s"
+    json_error "invalid username or password"
 fi
 
 STORED_HASH=$(echo "$USER_JSON" | jq -r '.password_hash // empty')
