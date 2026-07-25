@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# church-monitoring-archive-calendar-image — Moves a calendar image into the
+# images/archive/ subfolder (instead of deleting it outright) and
+# regenerates optimized/thumbnail derivatives, which removes the now-
+# orphaned ones via church-calendar's own cleanup logic. The archived file
+# itself is preserved and can be restored later (see
+# church-monitoring-restore-calendar-image).
+#
+# Must run as the church-calendar owner (invoked via `sudo -u pi` by
+# archive-calendar-image.cgi).
+#
+# Usage: church-monitoring-archive-calendar-image <images_dir> <filename>
+set -euo pipefail
+
+IMAGES_DIR="${1:?images_dir required}"
+FILENAME="${2:?filename required}"
+
+if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
+    echo "Invalid filename" >&2
+    exit 1
+fi
+
+TARGET="$IMAGES_DIR/$FILENAME"
+if [[ ! -f "$TARGET" ]]; then
+    echo "Image not found: $TARGET" >&2
+    exit 1
+fi
+
+ARCHIVE_DIR="$IMAGES_DIR/archive"
+mkdir -p "$ARCHIVE_DIR"
+mv "$TARGET" "$ARCHIVE_DIR/$FILENAME"
+
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+fi
+
+echo "Archived $TARGET -> $ARCHIVE_DIR/$FILENAME"

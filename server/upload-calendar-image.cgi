@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# cec-control.cgi — Proxies CEC control commands to a specific client.
-# Called by the dashboard with ?host=<client_name>&action=on|standby|active
+# upload-calendar-image.cgi — Proxies a calendar image upload to a client.
+# Called with ?host=<client_name>; the POST body is forwarded as-is (JSON:
+# {"filename":"...","data_base64":"..."}).
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -13,44 +14,23 @@ CERT="/etc/church-monitoring/ssl/server.crt"
 KEY="/etc/church-monitoring/ssl/server.key"
 CA="/etc/church-monitoring/ca/ca.crt"
 
-# Parse query string
-parse_qs() { echo "$QUERY_STRING" | tr '&' '\n' | grep "^$1=" | cut -d= -f2- | head -1; }
-
-TARGET=$(parse_qs "host")
-ACTION=$(parse_qs "action")
-
+TARGET=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^host=" | cut -d= -f2- | head -1)
 if [ -z "$TARGET" ]; then
     echo '{"error":"missing host parameter"}'
     exit 0
 fi
 
-if [ -z "$ACTION" ]; then
-    echo '{"error":"missing action parameter"}'
-    exit 0
-fi
-
-# Sanitize host
 TARGET_CLEAN=$(echo "$TARGET" | tr -cd 'a-zA-Z0-9._-')
 if [ "$TARGET_CLEAN" != "$TARGET" ]; then
     echo '{"error":"invalid host parameter"}'
     exit 0
 fi
 
-# Sanitize action
-case "$ACTION" in
-    on|standby|active) ;;
-    *)
-        echo '{"error":"invalid action, use: on, standby, active"}'
-        exit 0
-        ;;
-esac
-
 if [ ! -f "$CONFIG" ]; then
     echo '{"error":"server-config.json not found"}'
     exit 0
 fi
 
-# Look up client
 CLIENT=$(jq -c --arg name "$TARGET_CLEAN" '.clients[] | select(.name == $name)' "$CONFIG" 2>/dev/null)
 if [ -z "$CLIENT" ]; then
     echo '{"error":"unknown client"}'
@@ -60,12 +40,23 @@ fi
 HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
-DATA=$(curl -s --connect-timeout 5 --max-time 20 \
+if ! [[ "${CONTENT_LENGTH:-}" =~ ^[0-9]+$ ]] || [ "${CONTENT_LENGTH:-0}" -le 0 ]; then
+    echo '{"error":"empty request body"}'
+    exit 0
+fi
+
+TMPFILE=$(mktemp /tmp/church-monitoring-upload-body-XXXXXX)
+head -c "$CONTENT_LENGTH" > "$TMPFILE"
+
+DATA=$(curl -s --connect-timeout 5 --max-time 60 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/cec-control.cgi?action=${ACTION}" 2>/dev/null) || true
+    -X POST -H "Content-Type: application/json" --data-binary "@$TMPFILE" \
+    "https://${HOST}:${PORT}/cgi-bin/upload-calendar-image.cgi" 2>/dev/null) || true
+
+rm -f "$TMPFILE"
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
-    echo '{"error":"CEC control failed or timed out"}'
+    echo '{"error":"upload failed or timed out"}'
     exit 0
 fi
 

@@ -350,6 +350,21 @@ if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; 
     fi
 fi
 
+# Calendar image management (optional) — lets the dashboard view/upload/
+# delete church-calendar's flyer images on this host.
+CALENDAR_IMAGES_PATH=""
+if [[ $SKIP_CONFIG -eq 0 ]]; then
+    DEFAULT_CAL_IMAGES_PATH="/home/pi/church-calendar/images"
+    if [[ -f "$CONF_DIR/client-config.json" ]]; then
+        EXISTING_CAL_PATH=$(jq -r '.calendar_images_path // empty' "$CONF_DIR/client-config.json" 2>/dev/null || echo "")
+        [[ -n "$EXISTING_CAL_PATH" ]] && DEFAULT_CAL_IMAGES_PATH="$EXISTING_CAL_PATH"
+    fi
+    if ask_yn "Enable calendar image management (view/upload/delete flyer images from the dashboard)?" "n"; then
+        read -r -p "  Path to church-calendar's images folder [default: $DEFAULT_CAL_IMAGES_PATH]: " CAL_IMAGES_INPUT
+        CALENDAR_IMAGES_PATH="${CAL_IMAGES_INPUT:-$DEFAULT_CAL_IMAGES_PATH}"
+    fi
+fi
+
 # Write client config
 if [[ $SKIP_CONFIG -eq 0 ]]; then
     # Seed the `apps` array and default backup settings from the bundled example
@@ -368,7 +383,9 @@ if [[ $SKIP_CONFIG -eq 0 ]]; then
         --argjson cec "$CEC_ENABLED" \
         --argjson backup "$SEED_BACKUP" \
         --argjson apps "$SEED_APPS" \
-        '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec, backup:$backup, apps:$apps}' \
+        --arg calendar_images_path "$CALENDAR_IMAGES_PATH" \
+        '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec, backup:$backup, apps:$apps}
+         + (if $calendar_images_path == "" then {} else {calendar_images_path: $calendar_images_path} end)' \
         > "$CONF_DIR/client-config.json"
     chmod 644 "$CONF_DIR/client-config.json"
     echo "  Configuration saved."
@@ -406,6 +423,15 @@ REQUIRED_CGI=(
     reboot.cgi
     mode-switch.cgi
     calendar-settings.cgi
+    list-calendar-images.cgi
+    list-archived-calendar-images.cgi
+    list-evergreen-images.cgi
+    fetch-calendar-image.cgi
+    upload-calendar-image.cgi
+    archive-calendar-image.cgi
+    restore-calendar-image.cgi
+    store-evergreen-image.cgi
+    activate-evergreen-image.cgi
     backup.cgi
     backup-download.cgi
 )
@@ -433,6 +459,7 @@ done
 
 # Remove retired action CGI endpoints.
 rm -f "$CGI_DIR/restart-network.cgi" "$CGI_DIR/restart-display.cgi"
+rm -f "$CGI_DIR/delete-calendar-image.cgi"
 
 # Remove legacy shared CGI directory after migration.
 if [[ -d "$LEGACY_CGI_DIR" && "$LEGACY_CGI_DIR" != "$CGI_DIR" ]]; then
@@ -457,6 +484,28 @@ chmod 755 /usr/local/bin/church-monitoring-set-calendar-settings
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-calendar-settings" \
     > /etc/sudoers.d/church-monitoring-calendar-settings
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-settings
+
+# Install calendar image management helpers (write/archive/restore/store/
+# activate as the church-calendar owner, then regenerate optimized/
+# thumbnail derivatives)
+for HELPER in church-monitoring-write-calendar-image church-monitoring-archive-calendar-image church-monitoring-restore-calendar-image church-monitoring-store-evergreen-image church-monitoring-activate-evergreen-image; do
+    cp "$SCRIPT_DIR/$HELPER" "/usr/local/bin/$HELPER"
+    sed -i 's/\r$//' "/usr/local/bin/$HELPER"
+    chmod 755 "/usr/local/bin/$HELPER"
+done
+
+# Retire the old delete-based helper name (superseded by the archive helper).
+rm -f /usr/local/bin/church-monitoring-delete-calendar-image
+
+# Allow www-data to run the calendar image helpers as the display user
+cat > /etc/sudoers.d/church-monitoring-calendar-images <<'SUDOEOF'
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-write-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-archive-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-restore-calendar-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-store-evergreen-image
+www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-activate-evergreen-image
+SUDOEOF
+chmod 440 /etc/sudoers.d/church-monitoring-calendar-images
 
 # Allow www-data to restart systemd services
 echo "www-data ALL=(root) NOPASSWD: /bin/systemctl restart *" \

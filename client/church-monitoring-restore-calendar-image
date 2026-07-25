@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# church-monitoring-restore-calendar-image — Moves a previously-archived
+# calendar image back from images/archive/ into the live images/ folder and
+# regenerates optimized/thumbnail derivatives.
+#
+# Must run as the church-calendar owner (invoked via `sudo -u pi` by
+# restore-calendar-image.cgi).
+#
+# Usage: church-monitoring-restore-calendar-image <images_dir> <filename>
+set -euo pipefail
+
+IMAGES_DIR="${1:?images_dir required}"
+FILENAME="${2:?filename required}"
+
+if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
+    echo "Invalid filename" >&2
+    exit 1
+fi
+
+ARCHIVE_DIR="$IMAGES_DIR/archive"
+SOURCE="$ARCHIVE_DIR/$FILENAME"
+if [[ ! -f "$SOURCE" ]]; then
+    echo "Archived image not found: $SOURCE" >&2
+    exit 1
+fi
+
+TARGET="$IMAGES_DIR/$FILENAME"
+if [[ -e "$TARGET" ]]; then
+    echo "A file already exists at $TARGET; refusing to overwrite" >&2
+    exit 1
+fi
+
+mv "$SOURCE" "$TARGET"
+
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+fi
+
+echo "Restored $SOURCE -> $TARGET"

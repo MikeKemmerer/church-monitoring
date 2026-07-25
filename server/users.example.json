@@ -1,0 +1,15 @@
+{
+  "_comment": "Schema reference only — the real /etc/church-monitoring/users.json on a deployed server is bootstrapped by install.sh (or managed via the dashboard's admin 'Manage Users' panel / users.cgi). Never commit a real users.json; it contains password hashes.",
+  "users": [
+    {
+      "username": "admin",
+      "password_hash": "$6$<16-hex-salt>$<sha512-crypt-hash>",
+      "role": "admin",
+      "locked": false,
+      "failed_attempts": 0,
+      "lockout_until": 0,
+      "created": "2026-01-01T00:00:00Z",
+      "last_login": null
+    }
+  ]
+}

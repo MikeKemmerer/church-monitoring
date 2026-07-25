@@ -9,6 +9,9 @@
 #     display settings to the Midori kiosk session (any combination of the
 #     four params; switches the kiosk into Midori mode)
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 

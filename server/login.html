@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Church Monitoring &mdash; Login</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%231a1a2e'/%3E%3Cpath d='M4 18h6l3-10 5 20 3-10h7' stroke='%2300d97e' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.login-box{background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:28px;min-width:300px;max-width:90vw}
+.login-box h1{font-size:18px;margin-bottom:18px;color:#fff;display:flex;align-items:center;gap:8px}
+.login-box label{display:block;font-size:12px;color:#a0a0c0;margin-top:12px}
+.login-box input{width:100%;margin-top:4px;padding:8px;border-radius:4px;border:1px solid #0f3460;background:#0a1a35;color:#e0e0e0;font-size:14px}
+.login-box button{width:100%;margin-top:18px;padding:9px;border-radius:4px;border:none;background:#27ae60;color:#fff;font-size:14px;cursor:pointer}
+.login-box button:hover{background:#229954}
+.login-box button:disabled{opacity:.6;cursor:default}
+.login-error{margin-top:12px;font-size:12px;color:#e08080;min-height:14px}
+</style>
+</head>
+<body>
+
+<div class="login-box">
+    <h1>&#128225; Church Monitoring</h1>
+    <form id="loginForm">
+        <label>Username<input type="text" id="username" autocomplete="username" autofocus></label>
+        <label>Password<input type="password" id="password" autocomplete="current-password"></label>
+        <div class="login-error" id="loginError"></div>
+        <button type="submit" id="loginBtn">Log In</button>
+    </form>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value;
+    var errEl = document.getElementById('loginError');
+    var btn = document.getElementById('loginBtn');
+    errEl.textContent = '';
+
+    if (!username || !password) {
+        errEl.textContent = 'Username and password are required.';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Logging in\u2026';
+
+    fetch('/cgi-bin/login.cgi', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: username, password: password})
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) {
+                errEl.textContent = data.error;
+                btn.disabled = false;
+                btn.textContent = 'Log In';
+                return;
+            }
+            window.location.href = 'index.html';
+        })
+        .catch(function(err) {
+            errEl.textContent = 'Login failed: ' + err;
+            btn.disabled = false;
+            btn.textContent = 'Log In';
+        });
+});
+</script>
+</body>
+</html>

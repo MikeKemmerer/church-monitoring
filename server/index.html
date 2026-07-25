@@ -71,6 +71,15 @@ button:disabled{opacity:0.5;cursor:default}
 .badge-err{background:#c0392b;color:#fff}
 .cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
 .cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
+.images-panel{display:none;margin-top:8px;background:#0f3460;border-radius:6px;padding:10px}
+.images-upload{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px}
+.images-upload label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px}
+.img-tile{background:#16213e;border-radius:6px;padding:6px;text-align:center;position:relative}
+.img-tile.stale{border:1px solid #f39c12}
+.img-tile img{width:100%;height:60px;object-fit:cover;border-radius:4px;cursor:pointer}
+.img-noThumb{width:100%;height:60px;display:flex;align-items:center;justify-content:center;font-size:24px;background:#0a1a35;border-radius:4px}
+.img-name{font-size:9px;color:#a0a0c0;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
@@ -90,6 +99,24 @@ button:disabled{opacity:0.5;cursor:default}
 .dev-card a.card-name{color:#4aa3df;text-decoration:none}
 .dev-card a.card-name:hover{text-decoration:underline}
 .ext-icon{font-size:11px;opacity:.7}
+.user-bar{display:flex;align-items:center;gap:10px;font-size:12px;color:#a0a0c0;margin-left:auto}
+.user-bar .role-badge{background:#0f3460;border-radius:4px;padding:2px 7px;font-size:11px;text-transform:capitalize}
+.user-bar a, .user-bar button.link-btn{color:#7eb8da;text-decoration:none;background:none;border:none;padding:0;font-size:12px;cursor:pointer}
+.user-bar a:hover, .user-bar button.link-btn:hover{text-decoration:underline}
+.auth-panel{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center}
+.auth-panel.open{display:flex}
+.auth-panel-inner{background:#16213e;border:1px solid #0f3460;border-radius:8px;padding:18px;min-width:280px;max-width:90vw;max-height:85vh;overflow:auto}
+.auth-panel-inner h2{font-size:15px;margin-bottom:10px}
+.auth-panel-inner label{display:block;font-size:11px;color:#ccc;margin-top:8px}
+.auth-panel-inner input{width:100%;margin-top:3px;padding:5px;border-radius:4px;border:1px solid #0f3460;background:#0a1a35;color:#e0e0e0}
+.auth-panel-actions{margin-top:12px;display:flex;gap:8px;justify-content:flex-end}
+.users-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.users-table th,.users-table td{text-align:left;padding:5px 8px;border-bottom:1px solid #0f3460}
+.users-table td.actions-cell{display:flex;gap:4px;flex-wrap:wrap}
+.badge-locked{background:#c0392b;border-radius:4px;padding:1px 6px;font-size:10px}
+.add-user-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.add-user-form label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
+.add-user-form input,.add-user-form select{padding:5px;border-radius:4px;border:1px solid #0f3460;background:#0a1a35;color:#e0e0e0}
 @media(max-width:500px){
 .cards{grid-template-columns:1fr}
 .screenshot-area{width:100%}
@@ -101,7 +128,31 @@ button{padding:4px 8px;font-size:11px}
 </head>
 <body>
 
-<h1>&#128225; Church Monitoring <a href="help.html">Help</a></h1>
+<h1>&#128225; Church Monitoring <span class="user-bar" id="userBar"></span> <a href="help.html">Help</a></h1>
+
+<div class="auth-panel" id="changePasswordPanel">
+    <div class="auth-panel-inner">
+        <h2>Change Password</h2>
+        <div id="changePasswordError" class="stale"></div>
+        <label>Current password<input type="password" id="cpCurrent"></label>
+        <label>New password (min 8 characters)<input type="password" id="cpNew"></label>
+        <label>Confirm new password<input type="password" id="cpConfirm"></label>
+        <div class="auth-panel-actions">
+            <button onclick="closeChangePasswordPanel()">Cancel</button>
+            <button onclick="submitChangePassword()">Change Password</button>
+        </div>
+    </div>
+</div>
+
+<div class="auth-panel" id="manageUsersPanel">
+    <div class="auth-panel-inner" style="min-width:520px">
+        <h2>Manage Users</h2>
+        <div id="manageUsersBody">Loading&hellip;</div>
+        <div class="auth-panel-actions">
+            <button onclick="closeManageUsersPanel()">Close</button>
+        </div>
+    </div>
+</div>
 
 <div class="refresh-bar">
     <button onclick="fetchAll(true)">&#x21bb; Refresh All</button>
@@ -122,6 +173,197 @@ button{padding:4px 8px;font-size:11px}
 var autoTimer = null;
 var cecCache = {};  // Persistent CEC results keyed by client name
 var cecTimerInterval = null;
+var CURRENT_USER = null;
+var ROLE_RANK = {user: 1, contributor: 2, admin: 3};
+
+function hasRole(min) {
+    return !!CURRENT_USER && (ROLE_RANK[CURRENT_USER.role] || 0) >= (ROLE_RANK[min] || 99);
+}
+
+function checkAuth() {
+    return fetch('/cgi-bin/whoami.cgi', {credentials: 'same-origin'})
+        .then(function(r) {
+            if (!r.ok) {
+                window.location.href = 'login.html';
+                return Promise.reject(new Error('not logged in'));
+            }
+            return r.json();
+        })
+        .then(function(data) {
+            CURRENT_USER = data;
+            renderUserBar();
+        });
+}
+
+function renderUserBar() {
+    var bar = document.getElementById('userBar');
+    if (!bar || !CURRENT_USER) return;
+    var html = escapeHtml(CURRENT_USER.username) + ' <span class="role-badge">' + escapeHtml(CURRENT_USER.role) + '</span>';
+    html += ' <button class="link-btn" onclick="openChangePasswordPanel()">Change Password</button>';
+    if (hasRole('admin')) {
+        html += ' <button class="link-btn" onclick="openManageUsersPanel()">Manage Users</button>';
+    }
+    html += ' <a href="#" onclick="doLogout();return false;">Logout</a>';
+    bar.innerHTML = html;
+}
+
+function doLogout() {
+    fetch('/cgi-bin/logout.cgi', {credentials: 'same-origin'}).finally(function() {
+        window.location.href = 'login.html';
+    });
+}
+
+function openChangePasswordPanel() {
+    document.getElementById('cpCurrent').value = '';
+    document.getElementById('cpNew').value = '';
+    document.getElementById('cpConfirm').value = '';
+    document.getElementById('changePasswordError').textContent = '';
+    document.getElementById('changePasswordPanel').classList.add('open');
+}
+
+function closeChangePasswordPanel() {
+    document.getElementById('changePasswordPanel').classList.remove('open');
+}
+
+function submitChangePassword() {
+    var current = document.getElementById('cpCurrent').value;
+    var next = document.getElementById('cpNew').value;
+    var confirmVal = document.getElementById('cpConfirm').value;
+    var errEl = document.getElementById('changePasswordError');
+    errEl.textContent = '';
+
+    if (!current || !next) { errEl.textContent = 'All fields are required.'; return; }
+    if (next.length < 8) { errEl.textContent = 'New password must be at least 8 characters.'; return; }
+    if (next !== confirmVal) { errEl.textContent = 'New password and confirmation do not match.'; return; }
+
+    fetch('/cgi-bin/change-password.cgi', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({current_password: current, new_password: next})
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { errEl.textContent = data.error; return; }
+            closeChangePasswordPanel();
+            alert('Password changed.');
+        })
+        .catch(function(err) { errEl.textContent = 'Failed: ' + err; });
+}
+
+function openManageUsersPanel() {
+    document.getElementById('manageUsersPanel').classList.add('open');
+    loadManageUsersPanel();
+}
+
+function closeManageUsersPanel() {
+    document.getElementById('manageUsersPanel').classList.remove('open');
+}
+
+function loadManageUsersPanel() {
+    var body = document.getElementById('manageUsersBody');
+    body.innerHTML = '<span class="spinner"></span> Loading&hellip;';
+    fetch('/cgi-bin/users.cgi?action=list', {credentials: 'same-origin'})
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error) { body.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>'; return; }
+            renderManageUsers(data.users || []);
+        })
+        .catch(function(err) { body.innerHTML = '<small>&#9888; Failed to load: ' + escapeHtml(String(err)) + '</small>'; });
+}
+
+function usersAction(action, payload) {
+    return fetch('/cgi-bin/users.cgi?action=' + encodeURIComponent(action), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload || {})
+    }).then(function(r) { return r.json(); });
+}
+
+function renderManageUsers(users) {
+    var body = document.getElementById('manageUsersBody');
+    var html = '<table class="users-table"><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead><tbody>';
+    users.forEach(function(u) {
+        html += '<tr>';
+        html += '<td>' + escapeHtml(u.username) + '</td>';
+        html += '<td>' + escapeHtml(u.role) + '</td>';
+        html += '<td>' + (u.locked ? '<span class="badge-locked">locked</span>' : 'active') +
+            (u.failed_attempts > 0 ? ' <small class="stale">(' + u.failed_attempts + ' failed)</small>' : '') + '</td>';
+        html += '<td><small class="stale">' + escapeHtml(u.last_login || 'never') + '</small></td>';
+        html += '<td class="actions-cell">';
+        html += '<button onclick="userSetRole(\'' + escapeAttr(u.username) + '\')">Set Role</button>';
+        html += '<button onclick="userResetPassword(\'' + escapeAttr(u.username) + '\')">Reset Password</button>';
+        if (u.locked) {
+            html += '<button onclick="userUnlock(\'' + escapeAttr(u.username) + '\')">Unlock</button>';
+        } else {
+            html += '<button onclick="userLock(\'' + escapeAttr(u.username) + '\')">Lock</button>';
+        }
+        html += '<button class="btn-danger" onclick="userRemove(\'' + escapeAttr(u.username) + '\')">Remove</button>';
+        html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="add-user-form">';
+    html += '<label>Username<input type="text" id="newUserName"></label>';
+    html += '<label>Password<input type="password" id="newUserPass"></label>';
+    html += '<label>Role<select id="newUserRole"><option value="user">user</option><option value="contributor">contributor</option><option value="admin">admin</option></select></label>';
+    html += '<button onclick="userAdd()">Add User</button>';
+    html += '</div>';
+    html += '<div id="manageUsersError" class="stale"></div>';
+    body.innerHTML = html;
+}
+
+function userAdd() {
+    var username = document.getElementById('newUserName').value.trim();
+    var password = document.getElementById('newUserPass').value;
+    var role = document.getElementById('newUserRole').value;
+    usersAction('add', {username: username, password: password, role: role}).then(function(data) {
+        var errEl = document.getElementById('manageUsersError');
+        if (data.error) { errEl.textContent = data.error; return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userSetRole(username) {
+    var role = prompt('New role for ' + username + ' (user, contributor, admin):');
+    if (!role) return;
+    usersAction('set-role', {username: username, role: role.trim()}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userResetPassword(username) {
+    var pass = prompt('New password for ' + username + ' (min 8 characters):');
+    if (!pass) return;
+    usersAction('set-password', {username: username, new_password: pass}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userLock(username) {
+    if (!confirm('Lock account "' + username + '"?')) return;
+    usersAction('lock', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userUnlock(username) {
+    usersAction('unlock', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
+
+function userRemove(username) {
+    if (!confirm('Remove account "' + username + '"? This cannot be undone.')) return;
+    usersAction('remove', {username: username}).then(function(data) {
+        if (data.error) { alert(data.error); return; }
+        loadManageUsersPanel();
+    });
+}
 
 function formatUptime(s) {
     if (!s && s !== 0) return '—';
@@ -191,35 +433,42 @@ function renderMenu(name, data) {
     m += '<button class="menu-btn" title="Actions" onclick="toggleMenu(event,\'' + n + '\')">&#9776;</button>';
     m += '<div class="menu-dropdown" id="menu-' + n + '">';
 
-    // Backup actions (always available)
+    // Backup actions
     m += '<div class="menu-label">Backup</div>';
-    m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
+    if (hasRole('contributor')) {
+        m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
+    }
     m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
 
     // Restart entries for each monitored systemd service
     var systemd = (data.services || []).filter(function(svc) { return svc.type === 'systemd'; });
-    if (systemd.length) {
+    if (systemd.length && hasRole('contributor')) {
         m += '<div class="menu-sep"></div><div class="menu-label">Restart service</div>';
         systemd.forEach(function(svc) {
             m += '<button class="menu-item" onclick="restartServiceMenu(\'' + n + '\',\'' + escapeAttr(svc.name) + '\')">&#x21bb; ' + escapeHtml(svc.name) + '</button>';
         });
     }
 
-    // CEC submenu (if enabled on this client)
+    // CEC submenu (if enabled on this client) — status check is read-only and
+    // available to everyone; the control actions require contributor.
     if (data.cec_enabled) {
         m += '<div class="menu-sep"></div>';
         m += '<button class="menu-item" onclick="toggleSub(event,\'' + n + '\')">&#128250; TV (CEC) &#9656;</button>';
         m += '<div class="menu-sub" id="sub-' + n + '">';
         m += '<button class="menu-item" onclick="checkCecMenu(\'' + n + '\')">Check status</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'on\')">&#9654; Power on</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'standby\')">&#9724; Standby</button>';
-        m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'active\')">&#127909; Active input</button>';
+        if (hasRole('contributor')) {
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'on\')">&#9654; Power on</button>';
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'standby\')">&#9724; Standby</button>';
+            m += '<button class="menu-item" onclick="cecControlMenu(\'' + n + '\',\'active\')">&#127909; Active input</button>';
+        }
         m += '</div>';
     }
 
     // Reboot (destructive)
-    m += '<div class="menu-sep"></div>';
-    m += '<button class="menu-item danger" onclick="rebootHostMenu(\'' + n + '\')">&#x23FB; Reboot host</button>';
+    if (hasRole('contributor')) {
+        m += '<div class="menu-sep"></div>';
+        m += '<button class="menu-item danger" onclick="rebootHostMenu(\'' + n + '\')">&#x23FB; Reboot host</button>';
+    }
 
     m += '</div></div>';
     return m;
@@ -332,12 +581,19 @@ function renderCard(data) {
     });
     if (hasVlc || hasMidori) {
         html += '<span class="btn-group">';
-        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
-        html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+        if (hasRole('contributor')) {
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+        }
         html += '</span>';
     }
-    if (hasMidori) {
+    if (hasMidori && hasRole('contributor')) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
+    }
+    if (data.calendar_images) {
+        html += '<button onclick="toggleImagesPanel(\'' + escapeAttr(name) + '\',this)">&#128444; Manage Images' +
+            (data.calendar_images.stale > 0 ? ' <span class="badge badge-warn">' + data.calendar_images.stale + '</span>' : '') +
+            '</button>';
     }
     html += '</div>';
     html += '<span class="stale">Cached ' + ago(data.timestamp) + '</span>';
@@ -348,6 +604,11 @@ function renderCard(data) {
         var cecDisplay = cached ? 'display:block' : 'display:none';
         var cecContent = cached ? renderCecResult(cached) : '';
         html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
+    }
+
+    // Calendar images management panel (populated on demand)
+    if (data.calendar_images) {
+        html += '<div class="images-panel" id="images-panel-' + safeId(name) + '"></div>';
     }
 
     html += '</div>'; // card-stats
@@ -364,6 +625,10 @@ function escapeHtml(s) {
 
 function escapeAttr(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,"\\'");
+}
+
+function safeId(s) {
+    return String(s).replace(/[^a-zA-Z0-9]/g, '-');
 }
 
 function renderCecResult(cached) {
@@ -718,6 +983,304 @@ function applyCalendarSettings(host) {
         });
 }
 
+function toggleImagesPanel(host, btn) {
+    var panel = document.getElementById('images-panel-' + safeId(host));
+    if (!panel) return;
+    if (panel.style.display !== 'none' && panel.style.display !== '') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    loadImagesPanel(host);
+}
+
+function loadImagesPanel(host) {
+    var panel = document.getElementById('images-panel-' + safeId(host));
+    if (!panel) return;
+    panel.innerHTML = '<span class="spinner"></span> Loading images&hellip;';
+
+    fetchJson('/cgi-bin/fetch-calendar-images.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error) {
+                panel.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>';
+                return;
+            }
+            renderImagesPanel(host, data, panel);
+        })
+        .catch(function(err) {
+            panel.innerHTML = '<small>&#9888; Failed to load images: ' + escapeHtml(String(err)) + '</small>';
+        });
+}
+
+function renderImagesPanel(host, data, panel) {
+    var id = safeId(host);
+    var images = data.images || [];
+
+    var html = '';
+    if (hasRole('contributor')) {
+        html += '<div class="images-upload">';
+        html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+        html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
+        html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
+        html += '</div>';
+        html += '<div id="img-upload-status-' + id + '"></div>';
+    }
+
+    if (data.stale > 0) {
+        html += '<div class="cal-info-warn">&#9888; ' + data.stale + ' of ' + data.total + ' image(s) are past their removal date.</div>';
+    }
+
+    if (!images.length) {
+        html += '<div class="stale">No images found.</div>';
+    } else {
+        html += '<div class="img-grid">';
+        images.forEach(function(img) {
+            html += '<div class="img-tile' + (img.stale ? ' stale' : '') + '">';
+            if (img.thumbnail) {
+                html += '<img src="' + img.thumbnail + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
+            } else {
+                html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
+            }
+            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (img.stale) html += '<span class="badge badge-warn">stale</span>';
+            if (hasRole('contributor')) {
+                html += '<div style="display:flex;gap:3px;justify-content:center;margin-top:3px">';
+                html += '<button class="btn-danger" style="font-size:10px;padding:2px 5px" onclick="archiveCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Archive</button>';
+                html += '<button style="font-size:10px;padding:2px 5px" onclick="storeEvergreenImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">To Evergreen</button>';
+                html += '</div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    html += '<div style="margin-top:8px;display:flex;gap:8px">';
+    html += '<button onclick="toggleArchivePanel(\'' + escapeAttr(host) + '\')">&#128193; View Archive</button>';
+    html += '<button onclick="toggleEvergreenPanel(\'' + escapeAttr(host) + '\')">&#127794; View Evergreen</button>';
+    html += '</div>';
+    html += '<div class="images-panel" id="archive-panel-' + id + '" style="display:none;margin-top:6px"></div>';
+    html += '<div class="images-panel" id="evergreen-panel-' + id + '" style="display:none;margin-top:6px"></div>';
+
+    panel.innerHTML = html;
+}
+
+function toggleArchivePanel(host) {
+    var panel = document.getElementById('archive-panel-' + safeId(host));
+    if (!panel) return;
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    loadArchivePanel(host);
+}
+
+function loadArchivePanel(host) {
+    var panel = document.getElementById('archive-panel-' + safeId(host));
+    if (!panel) return;
+    panel.innerHTML = '<span class="spinner"></span> Loading archive&hellip;';
+
+    fetchJson('/cgi-bin/fetch-archived-calendar-images.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error) {
+                panel.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>';
+                return;
+            }
+            renderArchivePanel(host, data, panel);
+        })
+        .catch(function(err) {
+            panel.innerHTML = '<small>&#9888; Failed to load archive: ' + escapeHtml(String(err)) + '</small>';
+        });
+}
+
+function renderArchivePanel(host, data, panel) {
+    var images = data.images || [];
+    var html = '<div class="stale" style="margin-bottom:6px">Archived images (excluded from the live calendar)</div>';
+    if (!images.length) {
+        html += '<div class="stale">No archived images.</div>';
+    } else {
+        html += '<div class="img-grid">';
+        images.forEach(function(img) {
+            var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&archived=1';
+            html += '<div class="img-tile">';
+            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (hasRole('contributor')) {
+                html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="restoreCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Restore</button></div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    panel.innerHTML = html;
+}
+
+function restoreCalendarImageUI(host, filename) {
+    fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Restore failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadArchivePanel(host);
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Restore failed: ' + err); });
+}
+
+function toggleEvergreenPanel(host) {
+    var panel = document.getElementById('evergreen-panel-' + safeId(host));
+    if (!panel) return;
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    loadEvergreenPanel(host);
+}
+
+function loadEvergreenPanel(host) {
+    var panel = document.getElementById('evergreen-panel-' + safeId(host));
+    if (!panel) return;
+    panel.innerHTML = '<span class="spinner"></span> Loading evergreen storage&hellip;';
+
+    fetchJson('/cgi-bin/fetch-evergreen-images.cgi?host=' + encodeURIComponent(host))
+        .then(function(data) {
+            if (data.error) {
+                panel.innerHTML = '<small>&#9888; ' + escapeHtml(data.error) + '</small>';
+                return;
+            }
+            renderEvergreenPanel(host, data, panel);
+        })
+        .catch(function(err) {
+            panel.innerHTML = '<small>&#9888; Failed to load evergreen storage: ' + escapeHtml(String(err)) + '</small>';
+        });
+}
+
+function renderEvergreenPanel(host, data, panel) {
+    var images = data.images || [];
+    var html = '<div class="stale" style="margin-bottom:6px">Evergreen storage &mdash; extra images not currently in rotation. Activate to add one back.</div>';
+    if (!images.length) {
+        html += '<div class="stale">No images in evergreen storage.</div>';
+    } else {
+        html += '<div class="img-grid">';
+        images.forEach(function(img) {
+            var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&evergreen=1';
+            html += '<div class="img-tile">';
+            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (hasRole('contributor')) {
+                html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="activateEvergreenImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Activate</button></div>';
+            }
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    panel.innerHTML = html;
+}
+
+function storeEvergreenImageUI(host, filename) {
+    if (!confirm('Move "' + filename + '" to evergreen storage? It will be removed from the live calendar but can be activated again at any time.')) return;
+    fetchJson('/cgi-bin/store-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Move to evergreen failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Move to evergreen failed: ' + err); });
+}
+
+function activateEvergreenImageUI(host, filename) {
+    fetchJson('/cgi-bin/activate-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Activate failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadEvergreenPanel(host);
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Activate failed: ' + err); });
+}
+
+function viewCalendarImage(host, filename) {
+    var url = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename);
+    window.open(url, '_blank');
+}
+
+function uploadCalendarImage(host) {
+    var id = safeId(host);
+    var dateInput = document.getElementById('img-upload-date-' + id);
+    var fileInput = document.getElementById('img-upload-file-' + id);
+    var statusEl = document.getElementById('img-upload-status-' + id);
+
+    var removeDate = dateInput ? dateInput.value : '';
+    var file = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+    if (!removeDate) { alert('Choose the date this image should be removed from the calendar.'); return; }
+    if (!file) { alert('Choose an image file to upload.'); return; }
+
+    var ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+    if (!/^\.(jpe?g|png|gif|webp)$/.test(ext)) {
+        alert('Unsupported file type. Use jpg, jpeg, png, gif, or webp.');
+        return;
+    }
+
+    var baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+    if (!baseName) baseName = 'image';
+    var filename = removeDate + ' ' + baseName + ext;
+
+    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading&hellip;';
+
+    var reader = new FileReader();
+    reader.onload = function() {
+        var dataUrl = reader.result;
+        var base64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+
+        fetch('/cgi-bin/upload-calendar-image.cgi?host=' + encodeURIComponent(host), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({filename: filename, data_base64: base64})
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    if (statusEl) statusEl.innerHTML = '<small>&#9888; ' + escapeHtml(data.error || 'Upload failed') + '</small>';
+                    return;
+                }
+                if (statusEl) statusEl.innerHTML = '';
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) {
+                if (statusEl) statusEl.innerHTML = '<small>&#9888; Upload failed: ' + escapeHtml(String(err)) + '</small>';
+            });
+    };
+    reader.onerror = function() {
+        if (statusEl) statusEl.innerHTML = '<small>&#9888; Failed to read file</small>';
+    };
+    reader.readAsDataURL(file);
+}
+
+function archiveCalendarImageUI(host, filename) {
+    if (!confirm('Archive "' + filename + '"? It will be removed from the live calendar but can be restored later.')) return;
+    fetchJson('/cgi-bin/archive-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Archive failed: ' + (data.error || 'unknown error'));
+                return;
+            }
+            loadImagesPanel(host);
+            setTimeout(function() { refreshOne(host); }, 1000);
+        })
+        .catch(function(err) { alert('Archive failed: ' + err); });
+}
+
 function rebootHost(host, btn) {
     var confirmId = 'reboot-confirm-' + host.replace(/[^a-zA-Z0-9]/g, '-');
     var existing = document.getElementById(confirmId);
@@ -767,11 +1330,16 @@ function fetchJson(url) {
     });
 }
 
-// Initial fetch
-fetchAll();
-cecTimerInterval = setInterval(updateCecTimers, 1000);
+// Initial fetch — gated behind a valid login session; checkAuth() redirects
+// to login.html if the whoami.cgi check comes back 401.
+checkAuth().then(function() {
+    fetchAll();
+    cecTimerInterval = setInterval(updateCecTimers, 1000);
 
-// Auto-refresh
+    // Auto-refresh
+    resetAutoRefresh();
+});
+
 function resetAutoRefresh() {
     if (autoTimer) clearInterval(autoTimer);
     var cb = document.getElementById('autoRefresh');
@@ -780,7 +1348,6 @@ function resetAutoRefresh() {
     }
 }
 document.getElementById('autoRefresh').addEventListener('change', resetAutoRefresh);
-resetAutoRefresh();
 </script>
 
 </body>

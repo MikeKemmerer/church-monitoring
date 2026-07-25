@@ -3,6 +3,9 @@
 # Called by the dashboard JS. Uses the server's client cert to authenticate.
 # Results are cached for 30 seconds. Clients are queried in parallel.
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role user
+
 echo "Content-Type: application/json"
 echo ""
 

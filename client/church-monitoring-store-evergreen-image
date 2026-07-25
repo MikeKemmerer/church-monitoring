@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# church-monitoring-store-evergreen-image — Moves an active calendar image
+# into the images/evergreen/ subfolder (a reusable reserve pool, distinct
+# from images/archive/'s "retired" images) and regenerates optimized/
+# thumbnail derivatives, which removes the now-orphaned ones via
+# church-calendar's own cleanup logic. The stored file is preserved and can
+# be brought back into rotation later (see
+# church-monitoring-activate-evergreen-image).
+#
+# Must run as the church-calendar owner (invoked via `sudo -u pi` by
+# store-evergreen-image.cgi).
+#
+# Usage: church-monitoring-store-evergreen-image <images_dir> <filename>
+set -euo pipefail
+
+IMAGES_DIR="${1:?images_dir required}"
+FILENAME="${2:?filename required}"
+
+if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
+    echo "Invalid filename" >&2
+    exit 1
+fi
+
+TARGET="$IMAGES_DIR/$FILENAME"
+if [[ ! -f "$TARGET" ]]; then
+    echo "Image not found: $TARGET" >&2
+    exit 1
+fi
+
+EVERGREEN_DIR="$IMAGES_DIR/evergreen"
+mkdir -p "$EVERGREEN_DIR"
+mv "$TARGET" "$EVERGREEN_DIR/$FILENAME"
+
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+fi
+
+echo "Stored $TARGET -> $EVERGREEN_DIR/$FILENAME"

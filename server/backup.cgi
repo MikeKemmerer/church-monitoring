@@ -3,6 +3,9 @@
 # Called by the dashboard with ?host=<client_name>
 # Returns the client's JSON backup summary (or a JSON error).
 
+source /usr/local/lib/church-monitoring/auth-lib.sh
+require_role contributor
+
 echo "Content-Type: application/json"
 echo ""
 
