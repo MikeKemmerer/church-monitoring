@@ -353,8 +353,18 @@ fi
 # Calendar image management (optional) — lets the dashboard view/upload/
 # delete church-calendar's flyer images on this host.
 CALENDAR_IMAGES_PATH=""
+discover_calendar_directory() {
+    local calendar_dir
+    calendar_dir=$(systemctl show church-calendar.service -p WorkingDirectory --value 2>/dev/null || true)
+    if [[ -n "$calendar_dir" && "$calendar_dir" != "/" && -d "$calendar_dir" ]]; then
+        printf '%s\n' "$calendar_dir"
+    fi
+}
+
 if [[ $SKIP_CONFIG -eq 0 ]]; then
-    DEFAULT_CAL_IMAGES_PATH="/home/pi/church-calendar/images"
+    CALENDAR_DIR=$(discover_calendar_directory || true)
+    DEFAULT_CAL_IMAGES_PATH="${CALENDAR_DIR:+$CALENDAR_DIR/images}"
+    DEFAULT_CAL_IMAGES_PATH="${DEFAULT_CAL_IMAGES_PATH:-/opt/church-calendar/images}"
     if [[ -f "$CONF_DIR/client-config.json" ]]; then
         EXISTING_CAL_PATH=$(jq -r '.calendar_images_path // empty' "$CONF_DIR/client-config.json" 2>/dev/null || echo "")
         [[ -n "$EXISTING_CAL_PATH" ]] && DEFAULT_CAL_IMAGES_PATH="$EXISTING_CAL_PATH"
@@ -375,6 +385,10 @@ if [[ $SKIP_CONFIG -eq 0 ]]; then
     if [[ -f "$SCRIPT_DIR/config.example.json" ]]; then
         SEED_APPS=$(jq -c '.apps // []' "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "[]")
         SEED_BACKUP=$(jq -c ".backup // $SEED_BACKUP" "$SCRIPT_DIR/config.example.json" 2>/dev/null || echo "$SEED_BACKUP")
+    fi
+    if [[ -n "${CALENDAR_DIR:-}" ]]; then
+        SEED_APPS=$(echo "$SEED_APPS" | jq --arg config_path "$CALENDAR_DIR/config.json" \
+            'map(if .name == "church-calendar" then .config_paths = [$config_path] else . end)')
     fi
 
     jq -n \

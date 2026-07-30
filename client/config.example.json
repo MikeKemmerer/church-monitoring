@@ -20,7 +20,7 @@
         {"name": "midori", "type": "process", "match": "midori|x-www-browser"}
     ],
     "cec_enabled": false,
-    "calendar_images_path": "/home/pi/church-calendar/images",
+    "calendar_images_path": "/opt/church-calendar/images",
     "backup": {
         "dir": "/var/backups/church-monitoring",
         "keep": 5,
@@ -69,7 +69,7 @@
             "apt": ["python3", "python3-pip"],
             "pip": ["pillow", "python-dateutil", "requests", "lxml"],
             "config_paths": [
-                "/home/pi/church-calendar/config.json"
+                "/opt/church-calendar/config.json"
             ],
             "service_names": ["church-calendar.service"],
             "order": 40
@@ -82,7 +82,7 @@
             "apt": ["vlc", "midori", "x11-apps", "curl", "python3", "cec-utils"],
             "pip": [],
             "config_paths": [
-                "/home/pi/local.conf"
+                "/etc/videokiosk2/local.conf"
             ],
             "service_names": ["videokiosk2.service", "videokiosk2-scheduler.service"],
             "order": 50
