@@ -21,6 +21,7 @@ Sets up a church-monitoring agent on this host.
 Options:
     --help          Show this help message
     --renew         Renew the agent certificate (re-enrolls with server)
+    --configure-apparmor  Configure Ubuntu Apache AppArmor in complain mode
     --update        Update config and CGI scripts only (keeps certs/enrollment)
 
 The client installer will:
@@ -55,11 +56,13 @@ EOF
 # ── Parse arguments ───────────────────────────────────────────────────
 RENEW=0
 UPDATE=0
+CONFIGURE_APPARMOR=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --help) show_help ;;
         --renew) RENEW=1; shift ;;
+        --configure-apparmor) CONFIGURE_APPARMOR=1; shift ;;
         --update) UPDATE=1; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -70,6 +73,12 @@ if [[ $EUID -ne 0 ]]; then
     echo "This installer must be run as root (use sudo)." >&2
     exit 1
 fi
+
+configure_apparmor_if_requested() {
+    if [[ $CONFIGURE_APPARMOR -eq 1 ]]; then
+        "$SCRIPT_DIR/../configure-apparmor.sh" --role client
+    fi
+}
 
 # ── Install packages ─────────────────────────────────────────────────
 install_packages() {
@@ -608,6 +617,7 @@ VHEOF
 
     # Reload Apache to pick up any new CGI scripts
     systemctl reload apache2 2>/dev/null || true
+    configure_apparmor_if_requested
 
     ACTIVE_SCRIPTALIAS=$(grep -E "^[[:space:]]*ScriptAlias /cgi-bin/" "$VHOST" 2>/dev/null | awk '{print $3}' | head -1)
     if [[ "$ACTIVE_SCRIPTALIAS" != "${CGI_DIR}/" ]]; then
@@ -685,6 +695,7 @@ a2ensite church-monitoring-client.conf >/dev/null 2>&1 || true
 
 # Reload Apache
 systemctl reload apache2
+configure_apparmor_if_requested
 
 echo "  Apache configured on port $CLIENT_PORT with mutual TLS."
 

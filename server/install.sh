@@ -25,6 +25,7 @@ Options:
     --help          Show this help message
     --port NUM      Dashboard port (default: 8080)
     --renew-cert    Regenerate the server client certificate only
+    --configure-apparmor  Configure Ubuntu Apache AppArmor in complain mode
     --update        Update dashboard, CGI scripts, and admin tools only
                     (keeps CA, certs, config, auth, and port unchanged)
 
@@ -61,6 +62,7 @@ EOF
 # ── Parse arguments ───────────────────────────────────────────────────
 RENEW_CERT=0
 UPDATE=0
+CONFIGURE_APPARMOR=0
 PORT=""
 
 while [[ $# -gt 0 ]]; do
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         --help) show_help ;;
         --port) PORT="$2"; shift 2 ;;
         --renew-cert) RENEW_CERT=1; shift ;;
+        --configure-apparmor) CONFIGURE_APPARMOR=1; shift ;;
         --update) UPDATE=1; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -81,6 +84,12 @@ require_root() {
     fi
 }
 require_root
+
+configure_apparmor_if_requested() {
+    if [[ $CONFIGURE_APPARMOR -eq 1 ]]; then
+        "$SCRIPT_DIR/../configure-apparmor.sh" --role server
+    fi
+}
 
 # ── Renew cert only ──────────────────────────────────────────────────
 if [[ $RENEW_CERT -eq 1 ]]; then
@@ -327,6 +336,7 @@ if [[ $UPDATE -eq 1 ]]; then
 VHEOF
 
     systemctl reload apache2
+    configure_apparmor_if_requested
 
     CLIENTS=$(jq '.clients | length' "$CONF_DIR/server-config.json" 2>/dev/null || echo "0")
 
@@ -549,6 +559,7 @@ a2ensite church-monitoring-server.conf >/dev/null 2>&1 || true
 
 # Reload Apache
 systemctl reload apache2
+configure_apparmor_if_requested
 
 # ── Generate first enrollment token ──────────────────────────────────
 echo ""
