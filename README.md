@@ -161,3 +161,24 @@ See `server/config.example.json` and `client/config.example.json` for reference 
 ## License
 
 MIT
+On Ubuntu, opt into an AppArmor complain-mode rollout after Apache is already
+configured with the compatible prefork MPM:
+
+```bash
+sudo ./server/install.sh --update --configure-apparmor
+```
+
+On an Ubuntu client, enable its CGI hat the same way:
+
+```bash
+sudo ./client/install.sh --update --configure-apparmor
+```
+
+The shared `configure-apparmor.sh` script never changes Apache's MPM. It skips
+non-Ubuntu hosts, including Raspberry Pi OS, and skips Ubuntu hosts not already
+using `mpm_prefork`. Profiles begin in complain mode; inspect
+`journalctl -k | grep apparmor` before explicitly switching to enforcement with
+`sudo ./configure-apparmor.sh --role server --mode enforce` or `--role client
+--mode enforce`. Enforcement applies to the monitoring CGI hat; Apache's parent
+profile remains in complain mode so unrelated Apache startup behavior is not
+blocked.
