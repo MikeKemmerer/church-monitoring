@@ -87,6 +87,7 @@ rm -f /usr/local/bin/church-monitoring-collect
 rm -f /usr/local/bin/church-screenshot.sh
 rm -f /usr/local/bin/church-monitoring-reboot-host
 rm -f /usr/local/bin/church-monitoring-mode-midori
+rm -f /usr/local/bin/church-monitoring-mode-browser
 rm -f /usr/local/bin/church-monitoring-set-calendar-settings
 rm -f /usr/local/bin/church-monitoring-write-calendar-image
 rm -f /usr/local/bin/church-monitoring-archive-calendar-image

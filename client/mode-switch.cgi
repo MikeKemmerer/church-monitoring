@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# mode-switch.cgi - Switches between VLC (live stream) and Midori (calendar) modes.
-# Accepts ?mode=vlc|midori
+# mode-switch.cgi - Switches between VLC (live stream) and browser (calendar) modes.
+# Accepts ?mode=vlc|browser
 # Only meaningful on hosts running videokiosk2.
 
 echo "Content-Type: application/json"
@@ -22,17 +22,17 @@ case "$MODE_CLEAN" in
             echo "{\"result\":\"failed\",\"mode\":\"vlc\",\"error\":$(echo "$OUTPUT" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
         fi
         ;;
-    midori)
-        OUTPUT=$(sudo /usr/local/bin/church-monitoring-mode-midori 2>&1)
+    browser)
+        OUTPUT=$(sudo /usr/local/bin/church-monitoring-mode-browser 2>&1)
         RC=$?
         if [ $RC -eq 0 ]; then
             STATE=$(systemctl is-active videokiosk2 2>/dev/null || echo "unknown")
-            echo "{\"result\":\"switched\",\"mode\":\"midori\",\"service_state\":\"$STATE\",\"timestamp\":\"$TIMESTAMP\"}"
+            echo "{\"result\":\"switched\",\"mode\":\"browser\",\"service_state\":\"$STATE\",\"timestamp\":\"$TIMESTAMP\"}"
         else
-            echo "{\"result\":\"failed\",\"mode\":\"midori\",\"error\":$(echo "$OUTPUT" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
+            echo "{\"result\":\"failed\",\"mode\":\"browser\",\"error\":$(echo "$OUTPUT" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
         fi
         ;;
     *)
-        echo '{"error":"invalid mode - use: vlc or midori"}'
+        echo '{"error":"invalid mode - use: vlc or browser"}'
         ;;
 esac

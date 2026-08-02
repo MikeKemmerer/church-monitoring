@@ -398,31 +398,32 @@ function hostHealth(data) {
     var svcs = data.services || [];
     var bad = false;
 
-    // Identify mutual-exclusion pair: vlc and midori
-    var vlcSvc = null, midoriSvc = null;
+    // Identify mutual-exclusion pair: vlc and the failover browser.
+    // Legacy clients report that browser as "midori".
+    var vlcSvc = null, browserSvc = null;
     svcs.forEach(function(svc) {
         if (svc.name === 'vlc') vlcSvc = svc;
-        if (svc.name === 'midori') midoriSvc = svc;
+        if (svc.name === 'browser' || svc.name === 'midori') browserSvc = svc;
     });
 
     var vlcUp = vlcSvc && vlcSvc.status && vlcSvc.status.indexOf('running') === 0;
-    var midoriUp = midoriSvc && midoriSvc.status && midoriSvc.status.indexOf('running') === 0;
-    var hasPair = vlcSvc && midoriSvc;
+    var browserUp = browserSvc && browserSvc.status && browserSvc.status.indexOf('running') === 0;
+    var hasPair = vlcSvc && browserSvc;
 
     // Both running = caution
-    if (hasPair && vlcUp && midoriUp) return 'warn';
+    if (hasPair && vlcUp && browserUp) return 'warn';
 
     // Check all services, but skip the expected-down member of the pair
     svcs.forEach(function(svc) {
         if (svc.status === 'inactive' || svc.status === 'not running') {
-            // If this is the idle member of the vlc/midori pair, it's expected
-            if (hasPair && ((svc.name === 'midori' && vlcUp) || (svc.name === 'vlc' && midoriUp))) return;
+            // If this is the idle member of the VLC/browser pair, it is expected.
+            if (hasPair && ((svc === browserSvc && vlcUp) || (svc === vlcSvc && browserUp))) return;
             bad = true;
         }
     });
 
     // Neither running when both are monitored = bad
-    if (hasPair && !vlcUp && !midoriUp) bad = true;
+    if (hasPair && !vlcUp && !browserUp) bad = true;
 
     return bad ? 'warn' : 'ok';
 }
@@ -574,20 +575,21 @@ function renderCard(data) {
     html += '<button onclick="refreshOne(\'' + escapeAttr(name) + '\')">&#x21bb; Refresh</button>';
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
     // Mode switch (show if kiosk processes are monitored)
-    var hasVlc = false, hasMidori = false;
+    var hasVlc = false, hasBrowser = false, hasMidori = false;
     (data.services || []).forEach(function(svc) {
         if (svc.name === 'vlc') hasVlc = true;
+        if (svc.name === 'browser') hasBrowser = true;
         if (svc.name === 'midori') hasMidori = true;
     });
-    if (hasVlc || hasMidori) {
+    if (hasVlc || hasBrowser || hasMidori) {
         html += '<span class="btn-group">';
         if (hasRole('contributor')) {
             html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
-            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'browser\',this)">&#127760; Browser</button>';
         }
         html += '</span>';
     }
-    if (hasMidori && hasRole('contributor')) {
+    if ((hasBrowser || hasMidori) && hasRole('contributor')) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
     }
     if (data.calendar_images) {

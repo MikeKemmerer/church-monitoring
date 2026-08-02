@@ -40,7 +40,7 @@ Monitored services (auto-detected, prompted for each):
     - church-calendar  Calendar display server (systemd)
     - videokiosk2      Video kiosk v2 (systemd)
     - vlc              VLC media player (process)
-    - midori           Midori web browser (process)
+    - browser          Falkon, Midori, or system web browser (process)
     - CEC              TV power/input via CEC (on-demand only)
 
 File locations:
@@ -331,14 +331,22 @@ if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; 
         # Process checks
         declare -A PROC_MAP=(
             ["vlc"]="VLC media player"
-            ["midori"]="Midori web browser"
+            ["browser"]="Web browser (Falkon, Midori, or system browser)"
         )
 
-        for proc in vlc midori; do
+        for proc in vlc browser; do
             DESC="${PROC_MAP[$proc]}"
-            if command -v "$proc" &>/dev/null; then
+            if [[ "$proc" == "browser" ]]; then
+                command -v falkon &>/dev/null || command -v midori &>/dev/null || command -v x-www-browser &>/dev/null || continue
+            elif ! command -v "$proc" &>/dev/null; then
+                continue
+            fi
+            {
                 if ask_yn "Monitor ${proc} process (${DESC})?" "y"; then
-                    read -r -p "  Match regex in ps -ef (leave empty for exact name match): " PROC_MATCH
+                    DEFAULT_MATCH=""
+                    [[ "$proc" == "browser" ]] && DEFAULT_MATCH="falkon|midori|x-www-browser"
+                    read -r -p "  Match regex in ps -ef${DEFAULT_MATCH:+ [$DEFAULT_MATCH]} (leave empty for exact name match): " PROC_MATCH
+                    PROC_MATCH="${PROC_MATCH:-$DEFAULT_MATCH}"
                     if [[ -n "$PROC_MATCH" ]]; then
                         MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" --arg m "$PROC_MATCH" \
                             '. + [{"name":$n,"type":"process","match":$m}]')
@@ -346,7 +354,7 @@ if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; 
                         MONITORS=$(echo "$MONITORS" | jq --arg n "$proc" '. + [{"name":$n,"type":"process"}]')
                     fi
                 fi
-            fi
+            }
         done
 
         # CEC
@@ -425,10 +433,17 @@ elif [[ -f "$CONF_DIR/client-config.json" ]]; then
         --argjson dflt_backup "$DEFAULT_BACKUP" \
         --argjson dflt_apps "$DEFAULT_APPS" \
         'if .backup == null then . + {"backup": $dflt_backup} else . end
-         | if .apps == null then . + {"apps": $dflt_apps} else . end' \
+         | if .apps == null then . + {"apps": $dflt_apps} else . end
+         | .monitors |= map(
+             if .name == "midori" and .type == "process" then
+                 .name = "browser" | .match = "falkon|midori|x-www-browser"
+             else
+                 .
+             end
+           )' \
         "$CONF_DIR/client-config.json" 2>/dev/null || cat "$CONF_DIR/client-config.json")
     echo "$UPDATED" > "$CONF_DIR/client-config.json"
-    echo "  Existing configuration kept; backup/apps defaults merged where absent."
+    echo "  Existing configuration kept; backup/apps defaults and browser monitor migration applied where needed."
 fi
 
 # ── Step 4: Install CGI scripts ──────────────────────────────────────
@@ -498,7 +513,7 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-screenshot.sh" \
     > /etc/sudoers.d/church-monitoring-screenshot
 chmod 440 /etc/sudoers.d/church-monitoring-screenshot
 
-# Install calendar settings helper (relaunches Midori with pushed display settings)
+# Install calendar settings helper.
 cp "$SCRIPT_DIR/church-monitoring-set-calendar-settings" /usr/local/bin/church-monitoring-set-calendar-settings
 sed -i 's/\r$//' /usr/local/bin/church-monitoring-set-calendar-settings
 chmod 755 /usr/local/bin/church-monitoring-set-calendar-settings
@@ -562,7 +577,7 @@ SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-backup
 
 # Install host-control helper scripts
-for HELPER in church-monitoring-reboot-host church-monitoring-mode-midori; do
+for HELPER in church-monitoring-reboot-host church-monitoring-mode-browser; do
     if [ -f "$SCRIPT_DIR/$HELPER" ]; then
         cp "$SCRIPT_DIR/$HELPER" "/usr/local/bin/$HELPER"
         sed -i 's/\r$//' "/usr/local/bin/$HELPER"
@@ -571,12 +586,12 @@ for HELPER in church-monitoring-reboot-host church-monitoring-mode-midori; do
 done
 
 # Remove retired helper scripts.
-rm -f /usr/local/bin/church-monitoring-restart-network /usr/local/bin/church-monitoring-restart-display
+rm -f /usr/local/bin/church-monitoring-restart-network /usr/local/bin/church-monitoring-restart-display /usr/local/bin/church-monitoring-mode-midori
 
 # Allow www-data to run host-control helpers as root
 cat > /etc/sudoers.d/church-monitoring-actions <<'SUDOEOF'
 www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-reboot-host
-www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-mode-midori
+www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-mode-browser
 SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-actions
 
@@ -615,8 +630,9 @@ VHEOF
     a2enmod ssl >/dev/null 2>&1 || true
     a2ensite church-monitoring-client.conf >/dev/null 2>&1 || true
 
-    # Reload Apache to pick up any new CGI scripts
-    systemctl reload apache2 2>/dev/null || true
+    # cgid uses a separate daemon under threaded MPMs. A graceful reload can
+    # leave it unavailable after enabling or updating the CGI vhost.
+    systemctl restart apache2
     configure_apparmor_if_requested
 
     ACTIVE_SCRIPTALIAS=$(grep -E "^[[:space:]]*ScriptAlias /cgi-bin/" "$VHOST" 2>/dev/null | awk '{print $3}' | head -1)
@@ -693,8 +709,8 @@ a2enmod ssl >/dev/null 2>&1 || true
 # Enable site
 a2ensite church-monitoring-client.conf >/dev/null 2>&1 || true
 
-# Reload Apache
-systemctl reload apache2
+# Start the cgid daemon with the newly enabled module and vhost.
+systemctl restart apache2
 configure_apparmor_if_requested
 
 echo "  Apache configured on port $CLIENT_PORT with mutual TLS."

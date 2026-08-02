@@ -17,7 +17,7 @@
         {"name": "church-calendar", "type": "systemd"},
         {"name": "videokiosk2", "type": "systemd"},
         {"name": "vlc", "type": "process", "match": "vlc -f http://server:8080/stream"},
-        {"name": "midori", "type": "process", "match": "midori|x-www-browser"}
+        {"name": "browser", "type": "process", "match": "falkon|midori|x-www-browser"}
     ],
     "cec_enabled": false,
     "calendar_images_path": "/opt/church-calendar/images",
@@ -79,7 +79,7 @@
             "repo": "https://github.com/MikeKemmerer/videokiosk2.git",
             "branch": "master",
             "installer_cmd": "sudo bash videokiosk2-installer.sh",
-            "apt": ["vlc", "midori", "x11-apps", "curl", "python3", "cec-utils"],
+            "apt": ["vlc", "x11-apps", "curl", "python3", "cec-utils"],
             "pip": [],
             "config_paths": [
                 "/etc/videokiosk2/local.conf"

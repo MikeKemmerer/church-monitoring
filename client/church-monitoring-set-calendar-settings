@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 # church-monitoring-set-calendar-settings — Pushes church-calendar display
-# settings (theme, font, slide speed, margins) to the Midori kiosk session
-# by relaunching Midori with them as URL query params, and forces the kiosk
-# into Midori/calendar mode so the change is visible immediately.
-#
-# Must run as the pi user (invoked via `sudo -u pi` by calendar-settings.cgi)
-# so DISPLAY/XAUTHORITY resolve to the active kiosk X session — mirrors the
-# pattern used by church-screenshot.sh.
+# settings (theme, font, slide speed, margins) to the kiosk browser session.
 #
 # Usage: church-monitoring-set-calendar-settings <theme> <font> <speed> <margins>
 # Each argument is either an allow-listed value or "-" to leave it unchanged.
 set -euo pipefail
 
-export DISPLAY=:0
-export XAUTHORITY="$HOME/.Xauthority"
+KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
+KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
+KIOSK_DISPLAY="${KIOSK_DISPLAY:-:0}"
+FAILOVER_LOG="${FAILOVER_LOG:-/tmp/videokiosk2-failover.log}"
 
 ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light)
 ALLOWED_FONTS=(cinzel-lora roboto-open-sans playfair-source)
@@ -81,27 +77,130 @@ if [[ -z "$QS" ]]; then
     exit 1
 fi
 
-LOCAL_CONF="$HOME/local.conf"
-if [[ -f "$LOCAL_CONF" ]]; then
-    # shellcheck source=/dev/null
-    source "$LOCAL_CONF"
-fi
-
-if [[ -z "${BROWSER_URL:-}" ]]; then
-    echo "BROWSER_URL not configured in $LOCAL_CONF" >&2
+KIOSK_USER=$(systemctl show "$KIOSK_SERVICE" -p User --value 2>/dev/null || true)
+if [[ -z "$KIOSK_USER" ]]; then
+    echo "Unable to determine the kiosk user from $KIOSK_SERVICE" >&2
     exit 1
 fi
 
-TARGET_URL="${BROWSER_URL}?${QS}"
+KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
+if [[ -z "$KIOSK_HOME" || ! -d "$KIOSK_HOME" ]]; then
+    echo "Kiosk user home directory is unavailable: $KIOSK_USER" >&2
+    exit 1
+fi
 
-# Force the kiosk into Midori/calendar mode so the change is visible now.
-pkill -f "^vlc" 2>/dev/null || true
-pkill -x midori 2>/dev/null || true
+if [[ ! -f "$KIOSK_CONFIG" && -f "$KIOSK_HOME/local.conf" ]]; then
+    KIOSK_CONFIG="$KIOSK_HOME/local.conf"
+fi
+if [[ -f "$KIOSK_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$KIOSK_CONFIG"
+fi
+if [[ -z "${BROWSER_URL:-}" ]]; then
+    echo "BROWSER_URL not configured in $KIOSK_CONFIG" >&2
+    exit 1
+fi
 
-# Give the old Midori process a moment to fully exit before relaunching.
-sleep 1
+KIOSK_UID=$(id -u "$KIOSK_USER")
+KIOSK_RUNTIME_DIR="/run/user/$KIOSK_UID"
+KIOSK_ENV=(
+    "HOME=$KIOSK_HOME"
+    "DISPLAY=$KIOSK_DISPLAY"
+    "XDG_RUNTIME_DIR=$KIOSK_RUNTIME_DIR"
+)
+if [[ -S "$KIOSK_RUNTIME_DIR/bus" ]]; then
+    KIOSK_ENV+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$KIOSK_RUNTIME_DIR/bus")
+fi
 
-midori -e SingleWindow -e Fullscreen "$TARGET_URL" >/dev/null 2>&1 &
-disown
+resolve_xauthority() {
+    local candidate
+    local -a candidates=("$KIOSK_HOME/.Xauthority")
+
+    while IFS= read -r -d '' candidate; do
+        candidates+=("$candidate")
+    done < <(
+        find "$KIOSK_RUNTIME_DIR" "$KIOSK_HOME" -maxdepth 3 -type f \
+            \( -name '.Xauthority' -o -name 'Xauthority' -o -name '.mutter-Xwaylandauth.*' \) \
+            -print0 2>/dev/null
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -r "$candidate" ]] && runuser -u "$KIOSK_USER" -- env \
+            "${KIOSK_ENV[@]}" XAUTHORITY="$candidate" xset q >/dev/null 2>&1; then
+            KIOSK_ENV+=("XAUTHORITY=$candidate")
+            return
+        fi
+    done
+
+    echo "Unable to find X11 authorization for $KIOSK_USER on $KIOSK_DISPLAY" >&2
+    exit 1
+}
+
+detect_failover_browser() {
+    if [[ -n "${FAILOVER_BROWSER:-}" ]]; then
+        case "$FAILOVER_BROWSER" in
+            falkon|midori) return ;;
+            *) echo "Unsupported FAILOVER_BROWSER: $FAILOVER_BROWSER" >&2; exit 1 ;;
+        esac
+    fi
+
+    if [[ -r /etc/os-release ]]; then
+        # shellcheck disable=SC1091
+        source /etc/os-release
+        if [[ "${ID:-}" == "raspbian" || "${ID_LIKE:-}" == *raspbian* || \
+            "${NAME:-}" == *"Raspberry Pi OS"* || "${PRETTY_NAME:-}" == *"Raspberry Pi OS"* ]]; then
+            FAILOVER_BROWSER="midori"
+            return
+        fi
+    fi
+
+    FAILOVER_BROWSER="falkon"
+}
+
+if [[ "$BROWSER_URL" == *\?* ]]; then
+    TARGET_URL="${BROWSER_URL}&${QS}"
+else
+    TARGET_URL="${BROWSER_URL}?${QS}"
+fi
+
+resolve_xauthority
+detect_failover_browser
+
+case "$FAILOVER_BROWSER" in
+    falkon)
+        command -v falkon >/dev/null 2>&1 || {
+            echo "Falkon is not installed" >&2
+            exit 1
+        }
+        pkill -u "$KIOSK_USER" -x falkon 2>/dev/null || true
+        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" sh -c \
+            'log_file=$1; shift; exec setsid "$@" >>"$log_file" 2>&1' \
+            sh "$FAILOVER_LOG" falkon --private-browsing --no-extensions --fullscreen "$TARGET_URL" < /dev/null &
+        BROWSER_PROCESS="falkon"
+        ;;
+    midori)
+        command -v midori >/dev/null 2>&1 || {
+            echo "Midori is not installed" >&2
+            exit 1
+        }
+        pkill -u "$KIOSK_USER" -x midori 2>/dev/null || true
+        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" sh -c \
+            'log_file=$1; shift; exec setsid "$@" >>"$log_file" 2>&1' \
+            sh "$FAILOVER_LOG" midori -e SingleWindow -e Fullscreen "$TARGET_URL" < /dev/null &
+        BROWSER_PROCESS="midori"
+        ;;
+esac
+
+# Start the requested calendar URL before stopping VLC. The wrapper sees the
+# already-running browser and preserves this URL during its failover path.
+for _ in {1..10}; do
+    pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1 && break
+    sleep 0.2
+done
+if ! pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1; then
+    echo "$BROWSER_PROCESS did not start; leaving VLC running" >&2
+    exit 1
+fi
+pkill -u "$KIOSK_USER" -f "^vlc" 2>/dev/null || true
 
 echo "Calendar settings applied: $QS"
