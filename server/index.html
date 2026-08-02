@@ -592,6 +592,9 @@ function renderCard(data) {
     if ((hasBrowser || hasMidori) && hasRole('contributor')) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
     }
+    if (data.browser && data.browser.type === 'falkon' && hasRole('contributor')) {
+        html += '<button onclick="toggleBrowserScalePanel(\'' + escapeAttr(name) + '\',this,\'' + escapeAttr(data.browser.scale || '1') + '\')">Scale</button>';
+    }
     if (data.calendar_images) {
         html += '<button onclick="toggleImagesPanel(\'' + escapeAttr(name) + '\',this)">&#128444; Manage Images' +
             (data.calendar_images.stale > 0 ? ' <span class="badge badge-warn">' + data.calendar_images.stale + '</span>' : '') +
@@ -1008,9 +1011,6 @@ function applyBrowserScale(host) {
     if (font) params += '&font=' + encodeURIComponent(font);
     if (speed) params += '&speed=' + encodeURIComponent(speed);
     if (margins) params += '&margins=' + encodeURIComponent(margins);
-    if (data.browser && data.browser.type === 'falkon' && hasRole('contributor')) {
-        html += '<button onclick="toggleBrowserScalePanel(\'' + escapeAttr(name) + '\',this,\'' + escapeAttr(data.browser.scale || '1') + '\')">Scale</button>';
-    }
 
     var panelId = 'calendar-panel-' + safeId;
     var panel = document.getElementById(panelId);
