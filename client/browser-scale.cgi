@@ -7,7 +7,7 @@ echo ""
 SCALE=$(echo "$QUERY_STRING" | tr '&;' '\n' | grep '^scale=' | cut -d= -f2- | head -1)
 
 case "$SCALE" in
-    1|1.25|1.5|1.75|2) ;;
+    1|1.25|1.5|1.75|2|2.5|3|4) ;;
     *)
         echo '{"error":"invalid scale"}'
         exit 0
