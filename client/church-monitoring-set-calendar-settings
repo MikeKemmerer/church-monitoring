@@ -157,11 +157,78 @@ detect_failover_browser() {
     FAILOVER_BROWSER="falkon"
 }
 
-if [[ "$BROWSER_URL" == *\?* ]]; then
-    TARGET_URL="${BROWSER_URL}&${QS}"
-else
-    TARGET_URL="${BROWSER_URL}?${QS}"
-fi
+build_calendar_url() {
+    local url_without_fragment fragment="" base query entry key
+    local -a retained_params=() updated_params=()
+
+    url_without_fragment="$BROWSER_URL"
+    if [[ "$url_without_fragment" == *#* ]]; then
+        fragment="#${url_without_fragment#*#}"
+        url_without_fragment="${url_without_fragment%%#*}"
+    fi
+
+    if [[ "$url_without_fragment" == *\?* ]]; then
+        base="${url_without_fragment%%\?*}"
+        query="${url_without_fragment#*\?}"
+        IFS='&' read -r -a retained_params <<< "$query"
+    else
+        base="$url_without_fragment"
+        retained_params=()
+    fi
+
+    updated_params=()
+    for entry in "${retained_params[@]}"; do
+        key="${entry%%=*}"
+        case "$key" in
+            theme) [[ "$THEME" == "-" ]] && updated_params+=("$entry") ;;
+            font) [[ "$FONT" == "-" ]] && updated_params+=("$entry") ;;
+            speed) [[ "$SPEED" == "-" ]] && updated_params+=("$entry") ;;
+            margins) [[ "$MARGINS" == "-" ]] && updated_params+=("$entry") ;;
+            *) [[ -n "$entry" ]] && updated_params+=("$entry") ;;
+        esac
+    done
+
+    [[ "$THEME" != "-" ]] && updated_params+=("theme=$THEME")
+    [[ "$FONT" != "-" ]] && updated_params+=("font=$FONT")
+    [[ "$SPEED" != "-" ]] && updated_params+=("speed=$SPEED")
+    [[ "$MARGINS" != "-" ]] && updated_params+=("margins=$MARGINS")
+
+    TARGET_URL="$base"
+    if (( ${#updated_params[@]} > 0 )); then
+        TARGET_URL+="?$(IFS='&'; echo "${updated_params[*]}")"
+    fi
+    TARGET_URL+="$fragment"
+}
+
+persist_calendar_url() {
+    local temp_config
+    temp_config=$(mktemp "${KIOSK_CONFIG}.tmp.XXXXXX")
+
+    if ! awk -v url="$TARGET_URL" '
+        BEGIN { found = 0 }
+        /^BROWSER_URL=/ {
+            print "BROWSER_URL=\"" url "\""
+            found = 1
+            next
+        }
+        { print }
+        END {
+            if (!found) {
+                print "BROWSER_URL=\"" url "\""
+            }
+        }
+    ' "$KIOSK_CONFIG" > "$temp_config"; then
+        rm -f "$temp_config"
+        echo "Unable to update BROWSER_URL in $KIOSK_CONFIG" >&2
+        return 1
+    fi
+
+    chown --reference="$KIOSK_CONFIG" "$temp_config"
+    chmod --reference="$KIOSK_CONFIG" "$temp_config"
+    mv "$temp_config" "$KIOSK_CONFIG"
+}
+
+build_calendar_url
 
 resolve_xauthority
 detect_failover_browser
@@ -205,6 +272,11 @@ for _ in {1..10}; do
 done
 if ! pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1; then
     echo "$BROWSER_PROCESS did not start; kiosk service remains stopped" >&2
+    exit 1
+fi
+
+if ! persist_calendar_url; then
+    echo "Calendar started, but its settings were not saved" >&2
     exit 1
 fi
 
