@@ -8,8 +8,6 @@ set -euo pipefail
 
 KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
 KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
-KIOSK_DISPLAY="${KIOSK_DISPLAY:-:0}"
-FAILOVER_LOG="${FAILOVER_LOG:-/tmp/videokiosk2-failover.log}"
 
 ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light)
 ALLOWED_FONTS=(cinzel-lora roboto-open-sans playfair-source)
@@ -101,62 +99,6 @@ if [[ -z "${BROWSER_URL:-}" ]]; then
     exit 1
 fi
 
-KIOSK_UID=$(id -u "$KIOSK_USER")
-KIOSK_RUNTIME_DIR="/run/user/$KIOSK_UID"
-KIOSK_ENV=(
-    "HOME=$KIOSK_HOME"
-    "DISPLAY=$KIOSK_DISPLAY"
-    "XDG_RUNTIME_DIR=$KIOSK_RUNTIME_DIR"
-)
-if [[ -S "$KIOSK_RUNTIME_DIR/bus" ]]; then
-    KIOSK_ENV+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$KIOSK_RUNTIME_DIR/bus")
-fi
-
-resolve_xauthority() {
-    local candidate
-    local -a candidates=("$KIOSK_HOME/.Xauthority")
-
-    while IFS= read -r -d '' candidate; do
-        candidates+=("$candidate")
-    done < <(
-        find "$KIOSK_RUNTIME_DIR" "$KIOSK_HOME" -maxdepth 3 -type f \
-            \( -name '.Xauthority' -o -name 'Xauthority' -o -name '.mutter-Xwaylandauth.*' \) \
-            -print0 2>/dev/null
-    )
-
-    for candidate in "${candidates[@]}"; do
-        if [[ -r "$candidate" ]] && runuser -u "$KIOSK_USER" -- env \
-            "${KIOSK_ENV[@]}" XAUTHORITY="$candidate" xset q >/dev/null 2>&1; then
-            KIOSK_ENV+=("XAUTHORITY=$candidate")
-            return
-        fi
-    done
-
-    echo "Unable to find X11 authorization for $KIOSK_USER on $KIOSK_DISPLAY" >&2
-    exit 1
-}
-
-detect_failover_browser() {
-    if [[ -n "${FAILOVER_BROWSER:-}" ]]; then
-        case "$FAILOVER_BROWSER" in
-            falkon|midori) return ;;
-            *) echo "Unsupported FAILOVER_BROWSER: $FAILOVER_BROWSER" >&2; exit 1 ;;
-        esac
-    fi
-
-    if [[ -r /etc/os-release ]]; then
-        # shellcheck disable=SC1091
-        source /etc/os-release
-        if [[ "${ID:-}" == "raspbian" || "${ID_LIKE:-}" == *raspbian* || \
-            "${NAME:-}" == *"Raspberry Pi OS"* || "${PRETTY_NAME:-}" == *"Raspberry Pi OS"* ]]; then
-            FAILOVER_BROWSER="midori"
-            return
-        fi
-    fi
-
-    FAILOVER_BROWSER="falkon"
-}
-
 build_calendar_url() {
     local url_without_fragment fragment="" base query entry key
     local -a retained_params=() updated_params=()
@@ -230,54 +172,14 @@ persist_calendar_url() {
 
 build_calendar_url
 
-resolve_xauthority
-detect_failover_browser
-
-# Calendar mode intentionally leaves the kiosk service stopped. Starting the
-# browser first would make the wrapper exit and trigger its Restart=always path.
-if ! systemctl stop "$KIOSK_SERVICE"; then
-    echo "Unable to stop $KIOSK_SERVICE before launching Calendar" >&2
-    exit 1
-fi
-
-case "$FAILOVER_BROWSER" in
-    falkon)
-        command -v falkon >/dev/null 2>&1 || {
-            echo "Falkon is not installed" >&2
-            exit 1
-        }
-        pkill -u "$KIOSK_USER" -x falkon 2>/dev/null || true
-        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" \
-            setsid falkon --private-browsing --no-extensions --fullscreen "$TARGET_URL" \
-            >>"$FAILOVER_LOG" 2>&1 < /dev/null &
-        BROWSER_PROCESS="falkon"
-        ;;
-    midori)
-        command -v midori >/dev/null 2>&1 || {
-            echo "Midori is not installed" >&2
-            exit 1
-        }
-        pkill -u "$KIOSK_USER" -x midori 2>/dev/null || true
-        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" \
-            setsid midori -e SingleWindow -e Fullscreen "$TARGET_URL" \
-            >>"$FAILOVER_LOG" 2>&1 < /dev/null &
-        BROWSER_PROCESS="midori"
-        ;;
-esac
-
-# The service is already stopped, so it cannot restart VLC or replace this URL.
-for _ in {1..10}; do
-    pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1 && break
-    sleep 0.2
-done
-if ! pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1; then
-    echo "$BROWSER_PROCESS did not start; kiosk service remains stopped" >&2
-    exit 1
-fi
-
 if ! persist_calendar_url; then
-    echo "Calendar started, but its settings were not saved" >&2
+    echo "Calendar settings were not saved" >&2
     exit 1
 fi
 
-echo "Calendar settings applied: $QS"
+if ! systemctl restart "$KIOSK_SERVICE"; then
+    echo "Calendar settings were saved, but $KIOSK_SERVICE did not restart" >&2
+    exit 1
+fi
+
+echo "Calendar settings applied and $KIOSK_SERVICE restarted: $QS"
