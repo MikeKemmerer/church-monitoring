@@ -461,6 +461,7 @@ REQUIRED_CGI=(
     reboot.cgi
     mode-switch.cgi
     calendar-settings.cgi
+    browser-scale.cgi
     list-calendar-images.cgi
     list-archived-calendar-images.cgi
     list-evergreen-images.cgi
@@ -522,6 +523,15 @@ chmod 755 /usr/local/bin/church-monitoring-set-calendar-settings
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-calendar-settings" \
     > /etc/sudoers.d/church-monitoring-calendar-settings
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-settings
+
+# Install Falkon browser-scale helper.
+cp "$SCRIPT_DIR/church-monitoring-set-browser-scale" /usr/local/bin/church-monitoring-set-browser-scale
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-set-browser-scale
+chmod 755 /usr/local/bin/church-monitoring-set-browser-scale
+
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-browser-scale" \
+    > /etc/sudoers.d/church-monitoring-browser-scale
+chmod 440 /etc/sudoers.d/church-monitoring-browser-scale
 
 # Install calendar image management helpers (write/archive/restore/store/
 # activate as the church-calendar owner, then regenerate optimized/

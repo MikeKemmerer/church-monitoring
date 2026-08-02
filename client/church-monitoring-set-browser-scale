@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# church-monitoring-set-browser-scale - Persists Falkon's UI scale and restarts
+# videokiosk2. Must run as root.
+set -euo pipefail
+
+KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
+KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
+SCALE="${1:-}"
+
+case "$SCALE" in
+    1|1.25|1.5|1.75|2) ;;
+    *)
+        echo "Invalid browser scale: $SCALE" >&2
+        exit 1
+        ;;
+esac
+
+if [[ ! -f "$KIOSK_CONFIG" ]]; then
+    KIOSK_USER=$(systemctl show "$KIOSK_SERVICE" -p User --value 2>/dev/null || true)
+    KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
+    if [[ -n "$KIOSK_HOME" && -f "$KIOSK_HOME/local.conf" ]]; then
+        KIOSK_CONFIG="$KIOSK_HOME/local.conf"
+    fi
+fi
+
+if [[ ! -r "$KIOSK_CONFIG" ]]; then
+    echo "Kiosk config not found: $KIOSK_CONFIG" >&2
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$KIOSK_CONFIG"
+
+resolve_failover_browser() {
+    if [[ "${FAILOVER_BROWSER:-}" == "falkon" || "${FAILOVER_BROWSER:-}" == "midori" ]]; then
+        return
+    fi
+
+    if grep -q '^ID=raspbian\|Raspberry Pi OS' /etc/os-release 2>/dev/null; then
+        FAILOVER_BROWSER="midori"
+    else
+        FAILOVER_BROWSER="falkon"
+    fi
+}
+
+resolve_failover_browser
+if [[ "$FAILOVER_BROWSER" != "falkon" ]]; then
+    echo "Browser scaling is unavailable for the $FAILOVER_BROWSER fallback browser" >&2
+    exit 1
+fi
+
+TEMP_CONFIG=$(mktemp "${KIOSK_CONFIG}.tmp.XXXXXX")
+if ! awk -v scale="$SCALE" '
+    BEGIN { found = 0 }
+    /^BROWSER_SCALE=/ {
+        print "BROWSER_SCALE=\"" scale "\""
+        found = 1
+        next
+    }
+    { print }
+    END {
+        if (!found) {
+            print "BROWSER_SCALE=\"" scale "\""
+        }
+    }
+' "$KIOSK_CONFIG" > "$TEMP_CONFIG"; then
+    rm -f "$TEMP_CONFIG"
+    echo "Unable to update BROWSER_SCALE in $KIOSK_CONFIG" >&2
+    exit 1
+fi
+
+chown --reference="$KIOSK_CONFIG" "$TEMP_CONFIG"
+chmod --reference="$KIOSK_CONFIG" "$TEMP_CONFIG"
+mv "$TEMP_CONFIG" "$KIOSK_CONFIG"
+
+systemctl restart "$KIOSK_SERVICE"
+echo "Falkon browser scale set to $SCALE and $KIOSK_SERVICE restarted"

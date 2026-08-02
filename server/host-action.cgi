@@ -8,6 +8,7 @@
 #   calendar-settings&theme=&font=&speed=&margins=  - pushes church-calendar
 #     display settings to the browser kiosk session (any combination of the
 #     four params; switches the kiosk into browser mode)
+#   browser-scale&scale=1|1.25|1.5|1.75|2  - configures Falkon UI scaling
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -159,6 +160,17 @@ case "$ACTION" in
         fi
 
         ENDPOINT="/cgi-bin/calendar-settings.cgi?theme=${THEME}&font=${FONT}&speed=${SPEED}&margins=${MARGINS}"
+        ;;
+    browser-scale)
+        SCALE=$(parse_qs "scale")
+        case "$SCALE" in
+            1|1.25|1.5|1.75|2) ;;
+            *)
+                echo '{"error":"invalid browser scale"}'
+                exit 0
+                ;;
+        esac
+        ENDPOINT="/cgi-bin/browser-scale.cgi?scale=${SCALE}"
         ;;
     *)
         echo '{"error":"unknown action"}'

@@ -268,6 +268,37 @@ get_mac_for_ip() {
     echo "$mac" | tr 'A-F' 'a-f'
 }
 
+get_kiosk_browser_info() {
+    local kiosk_config="/etc/videokiosk2/local.conf"
+    local browser_type="${FAILOVER_BROWSER:-}"
+    local browser_scale="${BROWSER_SCALE:-1}"
+
+    if [ -r "$kiosk_config" ]; then
+        # shellcheck source=/dev/null
+        source "$kiosk_config"
+        browser_type="${FAILOVER_BROWSER:-}"
+        browser_scale="${BROWSER_SCALE:-1}"
+    else
+        return 0
+    fi
+
+    if [ "$browser_type" != "falkon" ] && [ "$browser_type" != "midori" ]; then
+        if grep -q '^ID=raspbian\|Raspberry Pi OS' /etc/os-release 2>/dev/null; then
+            browser_type="midori"
+        else
+            browser_type="falkon"
+        fi
+    fi
+
+    case "$browser_scale" in
+        1|1.25|1.5|1.75|2) ;;
+        *) browser_scale="1" ;;
+    esac
+
+    jq -n --arg type "$browser_type" --arg scale "$browser_scale" \
+        '{type: $type, scale: $scale}'
+}
+
 # Ensure cache directory exists
 mkdir -p "$CACHE_DIR"
 mkdir -p "$SLOW_CACHE_DIR"
@@ -594,6 +625,7 @@ fi
 HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || hostname)
 [ -z "$HOSTNAME_VAL" ] && HOSTNAME_VAL=$(hostname)
 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$CONFIG" 2>/dev/null || echo "false")
+BROWSER_INFO=$(get_kiosk_browser_info || true)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 jq -n \
@@ -620,6 +652,7 @@ jq -n \
     --argjson temp "$TEMP" \
     --argjson services "$SERVICES" \
     --argjson cec "$CEC_ENABLED" \
+    --argjson browser "${BROWSER_INFO:-null}" \
     '{
         hostname: $hostname,
         timestamp: $timestamp,
@@ -635,6 +668,7 @@ jq -n \
         slow_metrics: $slow_metrics,
         calendar_images: (if $cal_img_total == -1 then null else {total: $cal_img_total, stale: $cal_img_stale} end),
         services: $services,
+        browser: $browser,
         cec_enabled: $cec
     }' > "${CACHE}.tmp"
 

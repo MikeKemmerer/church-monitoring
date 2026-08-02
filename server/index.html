@@ -957,11 +957,60 @@ function applyCalendarSettings(host) {
         return;
     }
 
+
+function toggleBrowserScalePanel(host, btn, currentScale) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var panelId = 'browser-scale-panel-' + safeId;
+    var existing = document.getElementById(panelId);
+    if (existing) { existing.remove(); return; }
+    var panel = document.createElement('div');
+    panel.id = panelId;
+    panel.className = 'confirm-inline';
+    panel.innerHTML =
+        '<label>Falkon scale<select id="browser-scale-' + safeId + '">' +
+            '<option value="1">100%</option>' +
+            '<option value="1.25">125%</option>' +
+            '<option value="1.5">150%</option>' +
+            '<option value="1.75">175%</option>' +
+            '<option value="2">200%</option>' +
+        '</select></label>' +
+        '<button onclick="applyBrowserScale(\'' + escapeAttr(host) + '\')">Apply</button>' +
+        ' <button onclick="document.getElementById(\'' + panelId + '\').remove()">Cancel</button>';
+    panel.querySelector('select').value = currentScale || '1';
+    btn.parentNode.appendChild(panel);
+}
+
+function applyBrowserScale(host) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var scale = document.getElementById('browser-scale-' + safeId).value;
+    var panelId = 'browser-scale-panel-' + safeId;
+    var panel = document.getElementById(panelId);
+    if (panel) panel.innerHTML = '<span class="spinner"></span> Applying&hellip;';
+
+    fetchJson('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(host) +
+        '&action=browser-scale&scale=' + encodeURIComponent(scale))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Browser scale failed: ' + (data.error || 'unknown error'));
+            }
+            var current = document.getElementById(panelId);
+            if (current) current.remove();
+            setTimeout(function() { fetchAll(); }, 2000);
+        })
+        .catch(function(err) {
+            alert('Browser scale failed: ' + err);
+            var current = document.getElementById(panelId);
+            if (current) current.remove();
+        });
+}
     var params = 'host=' + encodeURIComponent(host) + '&action=calendar-settings';
     if (theme) params += '&theme=' + encodeURIComponent(theme);
     if (font) params += '&font=' + encodeURIComponent(font);
     if (speed) params += '&speed=' + encodeURIComponent(speed);
     if (margins) params += '&margins=' + encodeURIComponent(margins);
+    if (data.browser && data.browser.type === 'falkon' && hasRole('contributor')) {
+        html += '<button onclick="toggleBrowserScalePanel(\'' + escapeAttr(name) + '\',this,\'' + escapeAttr(data.browser.scale || '1') + '\')">Scale</button>';
+    }
 
     var panelId = 'calendar-panel-' + safeId;
     var panel = document.getElementById(panelId);
