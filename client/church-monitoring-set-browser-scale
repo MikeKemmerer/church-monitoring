@@ -8,7 +8,7 @@ KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
 SCALE="${1:-}"
 
 case "$SCALE" in
-    1|1.25|1.5|1.75|2) ;;
+    1|1.25|1.5|1.75|2|2.5|3|4) ;;
     *)
         echo "Invalid browser scale: $SCALE" >&2
         exit 1

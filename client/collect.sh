@@ -291,7 +291,7 @@ get_kiosk_browser_info() {
     fi
 
     case "$browser_scale" in
-        1|1.25|1.5|1.75|2) ;;
+        1|1.25|1.5|1.75|2|2.5|3|4) ;;
         *) browser_scale="1" ;;
     esac
 
