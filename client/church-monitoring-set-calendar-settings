@@ -180,9 +180,9 @@ case "$FAILOVER_BROWSER" in
             exit 1
         }
         pkill -u "$KIOSK_USER" -x falkon 2>/dev/null || true
-        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" sh -c \
-            'log_file=$1; shift; exec setsid "$@" >>"$log_file" 2>&1' \
-            sh "$FAILOVER_LOG" falkon --private-browsing --no-extensions --fullscreen "$TARGET_URL" < /dev/null &
+        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" \
+            setsid falkon --private-browsing --no-extensions --fullscreen "$TARGET_URL" \
+            >>"$FAILOVER_LOG" 2>&1 < /dev/null &
         BROWSER_PROCESS="falkon"
         ;;
     midori)
@@ -191,9 +191,9 @@ case "$FAILOVER_BROWSER" in
             exit 1
         }
         pkill -u "$KIOSK_USER" -x midori 2>/dev/null || true
-        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" sh -c \
-            'log_file=$1; shift; exec setsid "$@" >>"$log_file" 2>&1' \
-            sh "$FAILOVER_LOG" midori -e SingleWindow -e Fullscreen "$TARGET_URL" < /dev/null &
+        runuser -u "$KIOSK_USER" -- env "${KIOSK_ENV[@]}" \
+            setsid midori -e SingleWindow -e Fullscreen "$TARGET_URL" \
+            >>"$FAILOVER_LOG" 2>&1 < /dev/null &
         BROWSER_PROCESS="midori"
         ;;
 esac
