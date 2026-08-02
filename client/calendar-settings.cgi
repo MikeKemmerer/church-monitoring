@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # calendar-settings.cgi - Pushes church-calendar display settings (theme,
-# font, slide speed, margins) to the Midori kiosk session and switches the
-# kiosk into Midori mode so the change is visible immediately.
+# font, slide speed, margins) to the configured kiosk browser session.
 # Accepts any combination of ?theme=&font=&speed=&margins=
 # Only meaningful on hosts running videokiosk2.
 
@@ -68,7 +67,7 @@ fi
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-OUTPUT=$(sudo -u pi /usr/local/bin/church-monitoring-set-calendar-settings "$THEME" "$FONT" "$SPEED" "$MARGINS" 2>&1)
+OUTPUT=$(sudo /usr/local/bin/church-monitoring-set-calendar-settings "$THEME" "$FONT" "$SPEED" "$MARGINS" 2>&1)
 RC=$?
 
 if [ $RC -eq 0 ]; then

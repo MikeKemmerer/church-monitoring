@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
 # church-monitoring-set-calendar-settings — Pushes church-calendar display
-# settings (theme, font, slide speed, margins) to the Midori kiosk session
-# by relaunching Midori with them as URL query params, and forces the kiosk
-# into Midori/calendar mode so the change is visible immediately.
-#
-# Must run as the pi user (invoked via `sudo -u pi` by calendar-settings.cgi)
-# so DISPLAY/XAUTHORITY resolve to the active kiosk X session — mirrors the
-# pattern used by church-screenshot.sh.
+# settings (theme, font, slide speed, margins) to the kiosk browser session.
 #
 # Usage: church-monitoring-set-calendar-settings <theme> <font> <speed> <margins>
 # Each argument is either an allow-listed value or "-" to leave it unchanged.
 set -euo pipefail
 
-export DISPLAY=:0
-export XAUTHORITY="$HOME/.Xauthority"
+KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
+KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
 
 ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light)
 ALLOWED_FONTS=(cinzel-lora roboto-open-sans playfair-source)
@@ -81,27 +75,111 @@ if [[ -z "$QS" ]]; then
     exit 1
 fi
 
-LOCAL_CONF="$HOME/local.conf"
-if [[ -f "$LOCAL_CONF" ]]; then
-    # shellcheck source=/dev/null
-    source "$LOCAL_CONF"
-fi
-
-if [[ -z "${BROWSER_URL:-}" ]]; then
-    echo "BROWSER_URL not configured in $LOCAL_CONF" >&2
+KIOSK_USER=$(systemctl show "$KIOSK_SERVICE" -p User --value 2>/dev/null || true)
+if [[ -z "$KIOSK_USER" ]]; then
+    echo "Unable to determine the kiosk user from $KIOSK_SERVICE" >&2
     exit 1
 fi
 
-TARGET_URL="${BROWSER_URL}?${QS}"
+KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
+if [[ -z "$KIOSK_HOME" || ! -d "$KIOSK_HOME" ]]; then
+    echo "Kiosk user home directory is unavailable: $KIOSK_USER" >&2
+    exit 1
+fi
 
-# Force the kiosk into Midori/calendar mode so the change is visible now.
-pkill -f "^vlc" 2>/dev/null || true
-pkill -x midori 2>/dev/null || true
+if [[ ! -f "$KIOSK_CONFIG" && -f "$KIOSK_HOME/local.conf" ]]; then
+    KIOSK_CONFIG="$KIOSK_HOME/local.conf"
+fi
+if [[ -f "$KIOSK_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$KIOSK_CONFIG"
+fi
+if [[ -z "${BROWSER_URL:-}" ]]; then
+    echo "BROWSER_URL not configured in $KIOSK_CONFIG" >&2
+    exit 1
+fi
 
-# Give the old Midori process a moment to fully exit before relaunching.
-sleep 1
+build_calendar_url() {
+    local url_without_fragment fragment="" base query entry key
+    local -a retained_params=() updated_params=()
 
-midori -e SingleWindow -e Fullscreen "$TARGET_URL" >/dev/null 2>&1 &
-disown
+    url_without_fragment="$BROWSER_URL"
+    if [[ "$url_without_fragment" == *#* ]]; then
+        fragment="#${url_without_fragment#*#}"
+        url_without_fragment="${url_without_fragment%%#*}"
+    fi
 
-echo "Calendar settings applied: $QS"
+    if [[ "$url_without_fragment" == *\?* ]]; then
+        base="${url_without_fragment%%\?*}"
+        query="${url_without_fragment#*\?}"
+        IFS='&' read -r -a retained_params <<< "$query"
+    else
+        base="$url_without_fragment"
+        retained_params=()
+    fi
+
+    updated_params=()
+    for entry in "${retained_params[@]}"; do
+        key="${entry%%=*}"
+        case "$key" in
+            theme) [[ "$THEME" == "-" ]] && updated_params+=("$entry") ;;
+            font) [[ "$FONT" == "-" ]] && updated_params+=("$entry") ;;
+            speed) [[ "$SPEED" == "-" ]] && updated_params+=("$entry") ;;
+            margins) [[ "$MARGINS" == "-" ]] && updated_params+=("$entry") ;;
+            *) [[ -n "$entry" ]] && updated_params+=("$entry") ;;
+        esac
+    done
+
+    [[ "$THEME" != "-" ]] && updated_params+=("theme=$THEME")
+    [[ "$FONT" != "-" ]] && updated_params+=("font=$FONT")
+    [[ "$SPEED" != "-" ]] && updated_params+=("speed=$SPEED")
+    [[ "$MARGINS" != "-" ]] && updated_params+=("margins=$MARGINS")
+
+    TARGET_URL="$base"
+    if (( ${#updated_params[@]} > 0 )); then
+        TARGET_URL+="?$(IFS='&'; echo "${updated_params[*]}")"
+    fi
+    TARGET_URL+="$fragment"
+}
+
+persist_calendar_url() {
+    local temp_config
+    temp_config=$(mktemp "${KIOSK_CONFIG}.tmp.XXXXXX")
+
+    if ! awk -v url="$TARGET_URL" '
+        BEGIN { found = 0 }
+        /^BROWSER_URL=/ {
+            print "BROWSER_URL=\"" url "\""
+            found = 1
+            next
+        }
+        { print }
+        END {
+            if (!found) {
+                print "BROWSER_URL=\"" url "\""
+            }
+        }
+    ' "$KIOSK_CONFIG" > "$temp_config"; then
+        rm -f "$temp_config"
+        echo "Unable to update BROWSER_URL in $KIOSK_CONFIG" >&2
+        return 1
+    fi
+
+    chown --reference="$KIOSK_CONFIG" "$temp_config"
+    chmod --reference="$KIOSK_CONFIG" "$temp_config"
+    mv "$temp_config" "$KIOSK_CONFIG"
+}
+
+build_calendar_url
+
+if ! persist_calendar_url; then
+    echo "Calendar settings were not saved" >&2
+    exit 1
+fi
+
+if ! systemctl restart "$KIOSK_SERVICE"; then
+    echo "Calendar settings were saved, but $KIOSK_SERVICE did not restart" >&2
+    exit 1
+fi
+
+echo "Calendar settings applied and $KIOSK_SERVICE restarted: $QS"

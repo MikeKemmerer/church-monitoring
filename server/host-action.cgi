@@ -4,10 +4,11 @@
 #
 # Supported actions:
 #   reboot             - reboots the client host
-#   mode-switch&mode=vlc|midori  - switches kiosk display mode
+#   mode-switch&mode=vlc|browser - switches kiosk display mode
 #   calendar-settings&theme=&font=&speed=&margins=  - pushes church-calendar
-#     display settings to the Midori kiosk session (any combination of the
-#     four params; switches the kiosk into Midori mode)
+#     display settings to the browser kiosk session (any combination of the
+#     four params; switches the kiosk into browser mode)
+#   browser-scale&scale=1|1.25|1.5|1.75|2  - configures Falkon UI scaling
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -101,11 +102,11 @@ case "$ACTION" in
         MODE=$(parse_qs "mode")
         MODE_CLEAN=$(echo "$MODE" | tr -cd 'a-zA-Z0-9' | tr 'A-Z' 'a-z')
         if [ -z "$MODE_CLEAN" ]; then
-            echo '{"error":"missing mode parameter (vlc or midori)"}'
+            echo '{"error":"missing mode parameter (vlc or browser)"}'
             exit 0
         fi
-        if [ "$MODE_CLEAN" != "vlc" ] && [ "$MODE_CLEAN" != "midori" ]; then
-            echo '{"error":"invalid mode parameter (must be vlc or midori)"}'
+        if [ "$MODE_CLEAN" != "vlc" ] && [ "$MODE_CLEAN" != "browser" ]; then
+            echo '{"error":"invalid mode parameter (must be vlc or browser)"}'
             exit 0
         fi
         ENDPOINT="/cgi-bin/mode-switch.cgi?mode=${MODE_CLEAN}"
@@ -159,6 +160,17 @@ case "$ACTION" in
         fi
 
         ENDPOINT="/cgi-bin/calendar-settings.cgi?theme=${THEME}&font=${FONT}&speed=${SPEED}&margins=${MARGINS}"
+        ;;
+    browser-scale)
+        SCALE=$(parse_qs "scale")
+        case "$SCALE" in
+            1|1.25|1.5|1.75|2) ;;
+            *)
+                echo '{"error":"invalid browser scale"}'
+                exit 0
+                ;;
+        esac
+        ENDPOINT="/cgi-bin/browser-scale.cgi?scale=${SCALE}"
         ;;
     *)
         echo '{"error":"unknown action"}'

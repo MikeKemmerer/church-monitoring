@@ -398,31 +398,32 @@ function hostHealth(data) {
     var svcs = data.services || [];
     var bad = false;
 
-    // Identify mutual-exclusion pair: vlc and midori
-    var vlcSvc = null, midoriSvc = null;
+    // Identify mutual-exclusion pair: vlc and the failover browser.
+    // Legacy clients report that browser as "midori".
+    var vlcSvc = null, browserSvc = null;
     svcs.forEach(function(svc) {
         if (svc.name === 'vlc') vlcSvc = svc;
-        if (svc.name === 'midori') midoriSvc = svc;
+        if (svc.name === 'browser' || svc.name === 'midori') browserSvc = svc;
     });
 
     var vlcUp = vlcSvc && vlcSvc.status && vlcSvc.status.indexOf('running') === 0;
-    var midoriUp = midoriSvc && midoriSvc.status && midoriSvc.status.indexOf('running') === 0;
-    var hasPair = vlcSvc && midoriSvc;
+    var browserUp = browserSvc && browserSvc.status && browserSvc.status.indexOf('running') === 0;
+    var hasPair = vlcSvc && browserSvc;
 
     // Both running = caution
-    if (hasPair && vlcUp && midoriUp) return 'warn';
+    if (hasPair && vlcUp && browserUp) return 'warn';
 
     // Check all services, but skip the expected-down member of the pair
     svcs.forEach(function(svc) {
         if (svc.status === 'inactive' || svc.status === 'not running') {
-            // If this is the idle member of the vlc/midori pair, it's expected
-            if (hasPair && ((svc.name === 'midori' && vlcUp) || (svc.name === 'vlc' && midoriUp))) return;
+            // If this is the idle member of the VLC/browser pair, it is expected.
+            if (hasPair && ((svc === browserSvc && vlcUp) || (svc === vlcSvc && browserUp))) return;
             bad = true;
         }
     });
 
     // Neither running when both are monitored = bad
-    if (hasPair && !vlcUp && !midoriUp) bad = true;
+    if (hasPair && !vlcUp && !browserUp) bad = true;
 
     return bad ? 'warn' : 'ok';
 }
@@ -574,21 +575,25 @@ function renderCard(data) {
     html += '<button onclick="refreshOne(\'' + escapeAttr(name) + '\')">&#x21bb; Refresh</button>';
     html += '<button onclick="captureScreen(\'' + escapeAttr(name) + '\')">📷 Screenshot</button>';
     // Mode switch (show if kiosk processes are monitored)
-    var hasVlc = false, hasMidori = false;
+    var hasVlc = false, hasBrowser = false, hasMidori = false;
     (data.services || []).forEach(function(svc) {
         if (svc.name === 'vlc') hasVlc = true;
+        if (svc.name === 'browser') hasBrowser = true;
         if (svc.name === 'midori') hasMidori = true;
     });
-    if (hasVlc || hasMidori) {
+    if (hasVlc || hasBrowser || hasMidori) {
         html += '<span class="btn-group">';
         if (hasRole('contributor')) {
             html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'vlc\',this)">&#9654; VLC</button>';
-            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'midori\',this)">&#127760; Midori</button>';
+            html += '<button class="btn-mode" onclick="modeSwitch(\'' + escapeAttr(name) + '\',\'browser\',this)">&#127760; Browser</button>';
         }
         html += '</span>';
     }
-    if (hasMidori && hasRole('contributor')) {
+    if ((hasBrowser || hasMidori) && hasRole('contributor')) {
         html += '<button onclick="toggleCalendarPanel(\'' + escapeAttr(name) + '\',this)">&#127912; Calendar</button>';
+    }
+    if (data.browser && data.browser.type === 'falkon' && hasRole('contributor')) {
+        html += '<button onclick="toggleBrowserScalePanel(\'' + escapeAttr(name) + '\',this,\'' + escapeAttr(data.browser.scale || '1') + '\')">Scale</button>';
     }
     if (data.calendar_images) {
         html += '<button onclick="toggleImagesPanel(\'' + escapeAttr(name) + '\',this)">&#128444; Manage Images' +
@@ -955,6 +960,52 @@ function applyCalendarSettings(host) {
         return;
     }
 
+
+function toggleBrowserScalePanel(host, btn, currentScale) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var panelId = 'browser-scale-panel-' + safeId;
+    var existing = document.getElementById(panelId);
+    if (existing) { existing.remove(); return; }
+    var panel = document.createElement('div');
+    panel.id = panelId;
+    panel.className = 'confirm-inline';
+    panel.innerHTML =
+        '<label>Falkon scale<select id="browser-scale-' + safeId + '">' +
+            '<option value="1">100%</option>' +
+            '<option value="1.25">125%</option>' +
+            '<option value="1.5">150%</option>' +
+            '<option value="1.75">175%</option>' +
+            '<option value="2">200%</option>' +
+        '</select></label>' +
+        '<button onclick="applyBrowserScale(\'' + escapeAttr(host) + '\')">Apply</button>' +
+        ' <button onclick="document.getElementById(\'' + panelId + '\').remove()">Cancel</button>';
+    panel.querySelector('select').value = currentScale || '1';
+    btn.parentNode.appendChild(panel);
+}
+
+function applyBrowserScale(host) {
+    var safeId = host.replace(/[^a-zA-Z0-9]/g, '-');
+    var scale = document.getElementById('browser-scale-' + safeId).value;
+    var panelId = 'browser-scale-panel-' + safeId;
+    var panel = document.getElementById(panelId);
+    if (panel) panel.innerHTML = '<span class="spinner"></span> Applying&hellip;';
+
+    fetchJson('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(host) +
+        '&action=browser-scale&scale=' + encodeURIComponent(scale))
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Browser scale failed: ' + (data.error || 'unknown error'));
+            }
+            var current = document.getElementById(panelId);
+            if (current) current.remove();
+            setTimeout(function() { fetchAll(); }, 2000);
+        })
+        .catch(function(err) {
+            alert('Browser scale failed: ' + err);
+            var current = document.getElementById(panelId);
+            if (current) current.remove();
+        });
+}
     var params = 'host=' + encodeURIComponent(host) + '&action=calendar-settings';
     if (theme) params += '&theme=' + encodeURIComponent(theme);
     if (font) params += '&font=' + encodeURIComponent(font);
