@@ -166,6 +166,13 @@ fi
 resolve_xauthority
 detect_failover_browser
 
+# Calendar mode intentionally leaves the kiosk service stopped. Starting the
+# browser first would make the wrapper exit and trigger its Restart=always path.
+if ! systemctl stop "$KIOSK_SERVICE"; then
+    echo "Unable to stop $KIOSK_SERVICE before launching Calendar" >&2
+    exit 1
+fi
+
 case "$FAILOVER_BROWSER" in
     falkon)
         command -v falkon >/dev/null 2>&1 || {
@@ -191,16 +198,14 @@ case "$FAILOVER_BROWSER" in
         ;;
 esac
 
-# Start the requested calendar URL before stopping VLC. The wrapper sees the
-# already-running browser and preserves this URL during its failover path.
+# The service is already stopped, so it cannot restart VLC or replace this URL.
 for _ in {1..10}; do
     pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1 && break
     sleep 0.2
 done
 if ! pgrep -u "$KIOSK_USER" -x "$BROWSER_PROCESS" >/dev/null 2>&1; then
-    echo "$BROWSER_PROCESS did not start; leaving VLC running" >&2
+    echo "$BROWSER_PROCESS did not start; kiosk service remains stopped" >&2
     exit 1
 fi
-pkill -u "$KIOSK_USER" -f "^vlc" 2>/dev/null || true
 
 echo "Calendar settings applied: $QS"
