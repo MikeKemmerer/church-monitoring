@@ -161,6 +161,7 @@ SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 | `/etc/church-monitoring/tokens/` | Enrollment tokens |
 | `/etc/church-monitoring/users.json` | Dashboard accounts (hashed passwords) |
 | `/etc/church-monitoring/sessions/` | Active login sessions |
+| `/etc/church-monitoring/installed-version.json` | Installed server/client release metadata |
 | `/var/www/church-monitoring/` | Dashboard web root |
 | `/usr/lib/cgi-bin/church-monitoring-server/` | Server CGI scripts |
 
@@ -171,12 +172,21 @@ SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 | `/etc/church-monitoring/` | Configuration root |
 | `/etc/church-monitoring/ssl/` | Agent certificate and CA cert |
 | `/etc/church-monitoring/client-config.json` | Service configuration |
+| `/etc/church-monitoring/installed-version.json` | Installed server/client release metadata |
 | `/var/cache/church-monitoring/` | Cached status data |
 | `/usr/lib/cgi-bin/church-monitoring-client/` | Client CGI scripts |
 
 ## Configuration Examples
 
 See `server/config.example.json` and `client/config.example.json` for reference configurations.
+
+## Installed Versions
+
+Every server or client install/update records its release tag, source commit,
+and installation time in `/etc/church-monitoring/installed-version.json`.
+Clients include that data, along with an installed `videokiosk2` version when
+present, in their status payload. The dashboard displays the release tags and
+shows the commit and installation time in the Version tooltip.
 
 ## Releases
 

@@ -54,6 +54,21 @@ get_display_signal_unavailable() {
         '{output:$output, connection:"unknown", signal:"unavailable"}'
 }
 
+get_software_versions() {
+    local monitoring_versions='{}'
+    local kiosk_version='null'
+
+    if [[ -r /etc/church-monitoring/installed-version.json ]]; then
+        monitoring_versions=$(jq -c '.roles // {}' /etc/church-monitoring/installed-version.json 2>/dev/null || echo '{}')
+    fi
+    if [[ -r /etc/videokiosk2/installed-version.json ]]; then
+        kiosk_version=$(jq -c '.' /etc/videokiosk2/installed-version.json 2>/dev/null || echo 'null')
+    fi
+
+    jq -n --argjson monitoring "$monitoring_versions" --argjson kiosk "$kiosk_version" \
+        '{church_monitoring: $monitoring} + (if $kiosk == null then {} else {videokiosk2: $kiosk} end)'
+}
+
 get_config_ttl() {
     local key="$1"
     local default_ttl="$2"
@@ -669,6 +684,7 @@ HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || hostname)
 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$CONFIG" 2>/dev/null || echo "false")
 BROWSER_INFO=$(get_kiosk_browser_info || true)
 DISPLAY_SIGNAL=$(get_display_signal_info || get_display_signal_unavailable || echo "null")
+SOFTWARE_VERSIONS=$(get_software_versions)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 jq -n \
@@ -697,6 +713,7 @@ jq -n \
     --argjson cec "$CEC_ENABLED" \
     --argjson browser "${BROWSER_INFO:-null}" \
     --argjson display_signal "$DISPLAY_SIGNAL" \
+    --argjson software_versions "$SOFTWARE_VERSIONS" \
     '{
         hostname: $hostname,
         timestamp: $timestamp,
@@ -714,7 +731,8 @@ jq -n \
         services: $services,
         browser: $browser,
         cec_enabled: $cec,
-        display_signal: $display_signal
+        display_signal: $display_signal,
+        software_versions: $software_versions
     }' > "${CACHE}.tmp"
 
 mv "${CACHE}.tmp" "$CACHE"

@@ -560,6 +560,30 @@ function renderCard(data) {
             (displaySignal.mode ? '\nMode: ' + displaySignal.mode : '');
         infoRow.push('<span title="' + escapeHtml(signalTip) + '">Signal: <b style="color:' + signalColor + '">' + escapeHtml(signalState) + '</b></span>');
     }
+    if (data.software_versions) {
+        var versionLabels = [];
+        var versionDetails = [];
+        var monitoringVersions = data.software_versions.church_monitoring || {};
+        Object.keys(monitoringVersions).sort().forEach(function(role) {
+            var installed = monitoringVersions[role] || {};
+            var release = installed.tag || (installed.version ? 'v' + installed.version : 'unknown');
+            versionLabels.push('CM ' + role + ': ' + release);
+            versionDetails.push('Church Monitoring ' + role + '\nRelease: ' + release +
+                '\nCommit: ' + (installed.commit || 'unknown') +
+                '\nInstalled: ' + (installed.installed_at || 'unknown'));
+        });
+        var kioskVersion = data.software_versions.videokiosk2;
+        if (kioskVersion) {
+            var kioskRelease = kioskVersion.tag || (kioskVersion.version ? 'v' + kioskVersion.version : 'unknown');
+            versionLabels.push('Kiosk: ' + kioskRelease);
+            versionDetails.push('videokiosk2\nRelease: ' + kioskRelease +
+                '\nCommit: ' + (kioskVersion.commit || 'unknown') +
+                '\nInstalled: ' + (kioskVersion.installed_at || 'unknown'));
+        }
+        if (versionLabels.length) {
+            infoRow.push('<span title="' + escapeHtml(versionDetails.join('\n\n')) + '">Version: <b>' + escapeHtml(versionLabels.join(' | ')) + '</b></span>');
+        }
+    }
     (data.slow_metrics || []).forEach(function(m) {
         if (m.status === 'unavailable') return;
         var col = m.status === 'error' ? '#c0392b' : m.status === 'warn' ? '#f39c12' : '#7f8c8d';

@@ -56,8 +56,20 @@ jobs:
           fi
 
           repository_name="${GITHUB_REPOSITORY#*/}"
-          archive_path="$RUNNER_TEMP/${repository_name}-${tag}.tar.gz"
-          git archive --format=tar.gz --prefix="${repository_name}-${tag}/" --output="$archive_path" HEAD
+          archive_tar="$RUNNER_TEMP/${repository_name}-${tag}.tar"
+          archive_path="${archive_tar}.gz"
+          release_metadata="$RUNNER_TEMP/RELEASE.json"
+          jq -n \
+            --arg version "$version_file" \
+            --arg tag "$tag" \
+            --arg commit "$GITHUB_SHA" \
+            '{version: $version, tag: $tag, commit: $commit}' \
+            > "$release_metadata"
+          git archive --format=tar --prefix="${repository_name}-${tag}/" --output="$archive_tar" HEAD
+          tar --append --file="$archive_tar" \
+            --transform="s|^|${repository_name}-${tag}/|" \
+            -C "$RUNNER_TEMP" RELEASE.json
+          gzip -n "$archive_tar"
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"

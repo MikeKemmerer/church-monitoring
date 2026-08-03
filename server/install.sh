@@ -4,6 +4,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RELEASE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONF_DIR="/etc/church-monitoring"
 CA_DIR="$CONF_DIR/ca"
 SSL_DIR="$CONF_DIR/ssl"
@@ -13,6 +14,7 @@ CGI_DIR="/usr/lib/cgi-bin/church-monitoring-server"
 LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 LIB_DIR="/usr/local/lib/church-monitoring"
 DEFAULT_PORT=8080
+VERSION_MANIFEST="$CONF_DIR/installed-version.json"
 
 # ── Help ──────────────────────────────────────────────────────────────
 show_help() {
@@ -84,6 +86,37 @@ require_root() {
     fi
 }
 require_root
+
+write_version_manifest() {
+    local release_file="$RELEASE_ROOT/RELEASE.json"
+    local version tag commit installed_at existing
+
+    version=$(tr -d '\r\n' < "$RELEASE_ROOT/VERSION" 2>/dev/null || echo "unknown")
+    tag="v$version"
+    commit=$(git -C "$RELEASE_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")
+    if [[ -r "$release_file" ]]; then
+        version=$(jq -r '.version // empty' "$release_file" 2>/dev/null || echo "$version")
+        tag=$(jq -r '.tag // empty' "$release_file" 2>/dev/null || echo "$tag")
+        commit=$(jq -r '.commit // empty' "$release_file" 2>/dev/null || echo "$commit")
+    fi
+    [[ -n "$version" ]] || version="unknown"
+    [[ -n "$tag" ]] || tag="v$version"
+    [[ -n "$commit" ]] || commit="unknown"
+    installed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    existing=$(jq -c '.' "$VERSION_MANIFEST" 2>/dev/null || echo '{}')
+
+    printf '%s\n' "$existing" | jq \
+        --arg version "$version" \
+        --arg tag "$tag" \
+        --arg commit "$commit" \
+        --arg installed_at "$installed_at" \
+        '.roles = ((.roles // {}) + {server: {version: $version, tag: $tag, commit: $commit, installed_at: $installed_at}})' \
+        > "${VERSION_MANIFEST}.tmp"
+    mv "${VERSION_MANIFEST}.tmp" "$VERSION_MANIFEST"
+    chown root:root "$VERSION_MANIFEST"
+    chmod 644 "$VERSION_MANIFEST"
+    echo "  Installed server version: $tag ($commit)"
+}
 
 configure_apparmor_if_requested() {
     if [[ $CONFIGURE_APPARMOR -eq 1 ]]; then
@@ -301,6 +334,7 @@ if [[ $UPDATE -eq 1 ]]; then
     # session-based login system (users.json + users.cgi).
     rm -f /usr/local/bin/manage-auth.sh
     rm -f "$CONF_DIR/.htpasswd"
+    write_version_manifest
 
     # Rewrite Apache vhost (port and paths may have changed in code)
     echo "Updating Apache configuration..."
@@ -510,6 +544,7 @@ fi
 chown root:www-data "$CONF_DIR/server-config.json"
 chmod 660 "$CONF_DIR/server-config.json"
 
+write_version_manifest
 reassert_permissions
 
 # ── Apache vhost ──────────────────────────────────────────────────────
