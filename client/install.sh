@@ -214,6 +214,7 @@ echo "Step 3/6: Configuring service monitoring..."
 
 MONITORS="[]"
 CEC_ENABLED="false"
+DISPLAY_CONTROL_JSON="null"
 EXISTING_CONFIG="$CONF_DIR/client-config.json"
 SKIP_CONFIG=0
 
@@ -259,6 +260,7 @@ if [[ $UPDATE -eq 1 ]]; then
                 echo "  Using installer config.json."
                 MONITORS=$(jq -c '.monitors' "$BUNDLED_CONFIG" 2>/dev/null || echo "[]")
                 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
+                DISPLAY_CONTROL_JSON=$(jq -c '.display_control // null' "$BUNDLED_CONFIG" 2>/dev/null || echo "null")
                 # Ensure www-data has video group for CEC
                 if [[ "$CEC_ENABLED" == "true" ]]; then
                     usermod -aG video www-data 2>/dev/null || true
@@ -282,6 +284,7 @@ if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; 
     # ── Prompt-based config (new install or N choice) ────────────────
     if [[ -f "$BUNDLED_CONFIG" ]]; then
         echo "  Found bundled config.json — using it as template."
+        DISPLAY_CONTROL_JSON=$(jq -c '.display_control // null' "$BUNDLED_CONFIG" 2>/dev/null || echo "null")
 
         # Iterate over each monitor in the bundled config
         while IFS= read -r entry; do
@@ -412,10 +415,12 @@ if [[ $SKIP_CONFIG -eq 0 ]]; then
         --arg hostname "$CLIENT_HOSTNAME" \
         --argjson monitors "$MONITORS" \
         --argjson cec "$CEC_ENABLED" \
+        --argjson display_control "$DISPLAY_CONTROL_JSON" \
         --argjson backup "$SEED_BACKUP" \
         --argjson apps "$SEED_APPS" \
         --arg calendar_images_path "$CALENDAR_IMAGES_PATH" \
         '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec, backup:$backup, apps:$apps}
+         + (if $display_control == null then {} else {display_control:$display_control} end)
          + (if $calendar_images_path == "" then {} else {calendar_images_path: $calendar_images_path} end)' \
         > "$CONF_DIR/client-config.json"
     chmod 644 "$CONF_DIR/client-config.json"
@@ -462,6 +467,7 @@ REQUIRED_CGI=(
     mode-switch.cgi
     calendar-settings.cgi
     browser-scale.cgi
+    display-control.cgi
     list-calendar-images.cgi
     list-archived-calendar-images.cgi
     list-evergreen-images.cgi
@@ -532,6 +538,50 @@ chmod 755 /usr/local/bin/church-monitoring-set-browser-scale
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-browser-scale" \
     > /etc/sudoers.d/church-monitoring-browser-scale
 chmod 440 /etc/sudoers.d/church-monitoring-browser-scale
+
+# Install HDMI signal display-control helper.
+cp "$SCRIPT_DIR/church-monitoring-display-control" /usr/local/bin/church-monitoring-display-control
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-display-control
+chmod 755 /usr/local/bin/church-monitoring-display-control
+
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-display-control on, /usr/local/bin/church-monitoring-display-control off" \
+    > /etc/sudoers.d/church-monitoring-display-control
+chmod 440 /etc/sudoers.d/church-monitoring-display-control
+
+install_display_hooks() {
+    local strategy kiosk_user kiosk_home hook action
+
+    strategy=$(jq -r '.display_control.strategy // empty' "$CONF_DIR/client-config.json" 2>/dev/null || echo "")
+    [[ "$strategy" == "hdmi_signal" ]] || return
+
+    kiosk_user=$(systemctl show videokiosk2.service -p User --value 2>/dev/null || echo "")
+    kiosk_home=$(getent passwd "$kiosk_user" | cut -d: -f6)
+    if [[ -z "$kiosk_home" || ! -d "$kiosk_home" ]]; then
+        echo "  HDMI display hooks skipped: kiosk user could not be determined."
+        return
+    fi
+
+    for action in on off; do
+        if [[ "$action" == "on" ]]; then
+            hook="$kiosk_home/tvOn.sh"
+        else
+            hook="$kiosk_home/tvStandby.sh"
+        fi
+        if [[ -e "$hook" ]]; then
+            echo "  Keeping existing display hook: $hook"
+            continue
+        fi
+        cat > "$hook" <<EOF
+#!/usr/bin/env bash
+exec /usr/local/bin/church-monitoring-display-control $action
+EOF
+        chown "$kiosk_user:$kiosk_user" "$hook"
+        chmod 755 "$hook"
+        echo "  Installed HDMI display hook: $hook"
+    done
+}
+
+install_display_hooks
 
 # Install calendar image management helpers (write/archive/restore/store/
 # activate as the church-calendar owner, then regenerate optimized/

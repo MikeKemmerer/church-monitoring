@@ -20,6 +20,12 @@
         {"name": "browser", "type": "process", "match": "falkon|midori|x-www-browser"}
     ],
     "cec_enabled": false,
+    "display_control": {
+        "strategy": "hdmi_signal",
+        "output": "HDMI1",
+        "mode": "1920x1080",
+        "rate": 60
+    },
     "calendar_images_path": "/opt/church-calendar/images",
     "backup": {
         "dir": "/var/backups/church-monitoring",

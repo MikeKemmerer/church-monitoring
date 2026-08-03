@@ -12,6 +12,38 @@ SLOW_CACHE_DIR="$CACHE_DIR/slow-metrics"
 
 DEFAULT_SLOW_TTL=43200
 
+get_display_signal_info() {
+    local output kiosk_user kiosk_home xauthority xrandr_output connector_line
+    local connection mode signal
+
+    output=$(jq -r '.display_control.output // empty' "$CONFIG" 2>/dev/null || echo "")
+    [[ "$output" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+
+    kiosk_user=$(systemctl show videokiosk2.service -p User --value 2>/dev/null || echo "")
+    [[ "$kiosk_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || return 1
+    kiosk_home=$(getent passwd "$kiosk_user" | cut -d: -f6)
+    [[ -n "$kiosk_home" ]] || return 1
+    xauthority="$kiosk_home/.Xauthority"
+
+    xrandr_output=$(runuser -u "$kiosk_user" -- env DISPLAY=:0 XAUTHORITY="$xauthority" xrandr --query 2>/dev/null || echo "")
+    [[ -n "$xrandr_output" ]] || return 1
+    connector_line=$(printf '%s\n' "$xrandr_output" | awk -v output="$output" '$1 == output && ($2 == "connected" || $2 == "disconnected") { print; exit }')
+    [[ -n "$connector_line" ]] || return 1
+
+    connection=$(awk '{ print $2 }' <<<"$connector_line")
+    mode=$(sed -nE 's/^[^[:space:]]+[[:space:]]+connected[[:space:]]+([0-9]+x[0-9]+[^[:space:]]*).*/\1/p' <<<"$connector_line")
+    if [[ "$connection" == "connected" && -n "$mode" ]]; then
+        signal="active"
+    elif [[ "$connection" == "connected" ]]; then
+        signal="off"
+    else
+        signal="disconnected"
+    fi
+
+    jq -n --arg output "$output" --arg connection "$connection" --arg signal "$signal" --arg mode "$mode" \
+        '{output:$output, connection:$connection, signal:$signal} + (if $mode == "" then {} else {mode:$mode} end)'
+}
+
 get_config_ttl() {
     local key="$1"
     local default_ttl="$2"
@@ -626,6 +658,7 @@ HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || hostname)
 [ -z "$HOSTNAME_VAL" ] && HOSTNAME_VAL=$(hostname)
 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$CONFIG" 2>/dev/null || echo "false")
 BROWSER_INFO=$(get_kiosk_browser_info || true)
+DISPLAY_SIGNAL=$(get_display_signal_info || echo "null")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 jq -n \
@@ -653,6 +686,7 @@ jq -n \
     --argjson services "$SERVICES" \
     --argjson cec "$CEC_ENABLED" \
     --argjson browser "${BROWSER_INFO:-null}" \
+    --argjson display_signal "$DISPLAY_SIGNAL" \
     '{
         hostname: $hostname,
         timestamp: $timestamp,
@@ -669,7 +703,8 @@ jq -n \
         calendar_images: (if $cal_img_total == -1 then null else {total: $cal_img_total, stale: $cal_img_stale} end),
         services: $services,
         browser: $browser,
-        cec_enabled: $cec
+        cec_enabled: $cec,
+        display_signal: $display_signal
     }' > "${CACHE}.tmp"
 
 mv "${CACHE}.tmp" "$CACHE"

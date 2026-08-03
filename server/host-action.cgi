@@ -9,6 +9,7 @@
 #     display settings to the browser kiosk session (any combination of the
 #     four params; switches the kiosk into browser mode)
 #   browser-scale&scale=1|1.25|1.5|1.75|2|2.5|3|4  - configures Falkon UI scaling
+#   display-control&state=on|off  - enables or disables configured HDMI signal
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -171,6 +172,17 @@ case "$ACTION" in
                 ;;
         esac
         ENDPOINT="/cgi-bin/browser-scale.cgi?scale=${SCALE}"
+        ;;
+    display-control)
+        STATE=$(parse_qs "state")
+        case "$STATE" in
+            on|off) ;;
+            *)
+                echo '{"error":"invalid display state"}'
+                exit 0
+                ;;
+        esac
+        ENDPOINT="/cgi-bin/display-control.cgi?action=${STATE}"
         ;;
     *)
         echo '{"error":"unknown action"}'

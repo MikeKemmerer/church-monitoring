@@ -95,6 +95,26 @@ The client auto-detects and offers to monitor:
 | midori | process | Midori web browser |
 | CEC | on-demand | TV power/input via HDMI-CEC |
 
+### HDMI Signal Monitoring
+
+On an X11 kiosk, configure the connector used for HDMI signal control in the
+client configuration. The dashboard then reports `active` when that output has
+an active X11 mode, `off` when the connected output has been disabled, and
+`disconnected` when no display is present:
+
+```json
+"display_control": {
+    "strategy": "hdmi_signal",
+    "output": "HDMI1",
+    "mode": "1920x1080",
+    "rate": 60
+}
+```
+
+Use the connector name reported by `xrandr --query`; names differ by driver,
+for example `HDMI1` and `HDMI-1`. This signal state is independent of CEC and
+does not infer whether the television panel itself is powered on.
+
 ## Management Commands
 
 Run these on the **server**:
