@@ -158,6 +158,19 @@ SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 
 See `server/config.example.json` and `client/config.example.json` for reference configurations.
 
+## Releases
+
+`VERSION` records the current release version. Update it in the same PR as a
+user-visible change: increment major for incompatible changes, minor for new
+backward-compatible features, and patch for fixes.
+
+After merging a stable release to `master`, push a SemVer tag such as `v1.0.0`.
+The **Publish Release** workflow creates the GitHub release and attaches a
+versioned source tarball. For branch testing, run that workflow from the branch
+with a tag such as `v1.1.0-rc.1`; it creates a GitHub prerelease rather than a
+latest stable release. Set `VERSION` to the intended final version (`1.1.0` in
+this example) before publishing the candidate.
+
 ## License
 
 MIT
