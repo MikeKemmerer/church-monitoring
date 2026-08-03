@@ -217,6 +217,15 @@ On an Ubuntu client, enable its CGI hat the same way:
 sudo ./client/install.sh --update --configure-apparmor
 ```
 
+For an unattended update, choose the client service configuration explicitly.
+`E` keeps the enrolled host's current config, `I` imports the archive's
+`client/config.json`, and `N` runs the normal service prompts:
+
+```bash
+sudo ./server/install.sh --update
+sudo ./client/install.sh --update --config-choice E
+```
+
 The shared `configure-apparmor.sh` script never changes Apache's MPM. It skips
 non-Ubuntu hosts, including Raspberry Pi OS, and skips Ubuntu hosts not already
 using `mpm_prefork`. Profiles begin in complain mode; inspect

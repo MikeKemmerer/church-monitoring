@@ -25,6 +25,7 @@ Options:
     --renew         Renew the agent certificate (re-enrolls with server)
     --configure-apparmor  Configure Ubuntu Apache AppArmor in complain mode
     --update        Update config and CGI scripts only (keeps certs/enrollment)
+    --config-choice E|I|N  Select existing, installer, or new config during --update
 
 The client installer will:
     1. Install required packages (apache2, openssl, jq)
@@ -59,6 +60,7 @@ EOF
 RENEW=0
 UPDATE=0
 CONFIGURE_APPARMOR=0
+CONFIG_CHOICE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -66,9 +68,20 @@ while [[ $# -gt 0 ]]; do
         --renew) RENEW=1; shift ;;
         --configure-apparmor) CONFIGURE_APPARMOR=1; shift ;;
         --update) UPDATE=1; shift ;;
+        --config-choice)
+            CONFIG_CHOICE_OVERRIDE="${2:-}"
+            [[ -n "$CONFIG_CHOICE_OVERRIDE" ]] || { echo "--config-choice requires E, I, or N." >&2; exit 1; }
+            shift 2
+            ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+if [[ -n "$CONFIG_CHOICE_OVERRIDE" ]]; then
+    CONFIG_CHOICE_OVERRIDE=$(echo "$CONFIG_CHOICE_OVERRIDE" | tr '[:lower:]' '[:upper:]')
+    [[ $UPDATE -eq 1 ]] || { echo "--config-choice requires --update." >&2; exit 1; }
+    [[ "$CONFIG_CHOICE_OVERRIDE" =~ ^[EIN]$ ]] || { echo "--config-choice must be E, I, or N." >&2; exit 1; }
+fi
 
 # ── Require root ──────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -275,7 +288,12 @@ if [[ $UPDATE -eq 1 ]]; then
     [[ $HAS_BUNDLED -eq 1 ]] && VALID_OPTS="${VALID_OPTS}I/"
     VALID_OPTS="${VALID_OPTS}N"
 
-    read -r -p "  Choose [$VALID_OPTS]: " CONFIG_CHOICE
+    if [[ -n "$CONFIG_CHOICE_OVERRIDE" ]]; then
+        CONFIG_CHOICE="$CONFIG_CHOICE_OVERRIDE"
+        echo "  Using requested choice: $CONFIG_CHOICE"
+    else
+        read -r -p "  Choose [$VALID_OPTS]: " CONFIG_CHOICE
+    fi
     CONFIG_CHOICE=$(echo "$CONFIG_CHOICE" | tr '[:lower:]' '[:upper:]')
 
     case "$CONFIG_CHOICE" in
