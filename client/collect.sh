@@ -44,6 +44,16 @@ get_display_signal_info() {
         '{output:$output, connection:$connection, signal:$signal} + (if $mode == "" then {} else {mode:$mode} end)'
 }
 
+get_display_signal_unavailable() {
+    local output
+
+    output=$(jq -r '.display_control.output // empty' "$CONFIG" 2>/dev/null || echo "")
+    [[ "$output" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+
+    jq -n --arg output "$output" \
+        '{output:$output, connection:"unknown", signal:"unavailable"}'
+}
+
 get_config_ttl() {
     local key="$1"
     local default_ttl="$2"
@@ -658,7 +668,7 @@ HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || hostname)
 [ -z "$HOSTNAME_VAL" ] && HOSTNAME_VAL=$(hostname)
 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$CONFIG" 2>/dev/null || echo "false")
 BROWSER_INFO=$(get_kiosk_browser_info || true)
-DISPLAY_SIGNAL=$(get_display_signal_info || echo "null")
+DISPLAY_SIGNAL=$(get_display_signal_info || get_display_signal_unavailable || echo "null")
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 jq -n \
