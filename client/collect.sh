@@ -13,7 +13,7 @@ SLOW_CACHE_DIR="$CACHE_DIR/slow-metrics"
 DEFAULT_SLOW_TTL=43200
 
 get_display_signal_info() {
-    local output kiosk_user kiosk_home xauthority xrandr_output connector_line
+    local output kiosk_user kiosk_home runuser_path xauthority xrandr_output connector_line
     local connection mode signal
 
     output=$(jq -r '.display_control.output // empty' "$CONFIG" 2>/dev/null || echo "")
@@ -23,9 +23,14 @@ get_display_signal_info() {
     [[ "$kiosk_user" =~ ^[a-z_][a-z0-9_-]*$ ]] || return 1
     kiosk_home=$(getent passwd "$kiosk_user" | cut -d: -f6)
     [[ -n "$kiosk_home" ]] || return 1
+    runuser_path="/usr/sbin/runuser"
+    if [[ ! -x "$runuser_path" ]]; then
+        runuser_path=$(command -v runuser 2>/dev/null || echo "")
+    fi
+    [[ -x "$runuser_path" ]] || return 1
     xauthority="$kiosk_home/.Xauthority"
 
-    xrandr_output=$(runuser -u "$kiosk_user" -- env DISPLAY=:0 XAUTHORITY="$xauthority" xrandr --query 2>/dev/null || echo "")
+    xrandr_output=$("$runuser_path" -u "$kiosk_user" -- env DISPLAY=:0 XAUTHORITY="$xauthority" xrandr --query 2>/dev/null || echo "")
     [[ -n "$xrandr_output" ]] || return 1
     connector_line=$(printf '%s\n' "$xrandr_output" | awk -v output="$output" '$1 == output && ($2 == "connected" || $2 == "disconnected") { print; exit }')
     [[ -n "$connector_line" ]] || return 1

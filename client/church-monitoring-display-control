@@ -5,6 +5,7 @@ set -euo pipefail
 
 CONFIG="${CHURCH_MONITORING_CONFIG:-/etc/church-monitoring/client-config.json}"
 KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
+COLLECTOR="${CHURCH_MONITORING_COLLECTOR:-/usr/local/bin/church-monitoring-collect}"
 ACTION="${1:-}"
 
 case "$ACTION" in
@@ -78,14 +79,22 @@ run_xrandr() {
     fi
 }
 
+refresh_status() {
+    if [[ -x "$COLLECTOR" ]]; then
+        "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
+    fi
+}
+
 if [[ "$ACTION" == "off" ]]; then
     run_xrandr --output "$OUTPUT" --off
+    refresh_status
     echo "Disabled HDMI output $OUTPUT"
     exit 0
 fi
 
 for attempt in $(seq 1 15); do
     if run_xrandr --output "$OUTPUT" --mode "$MODE" --rate "$RATE"; then
+        refresh_status
         echo "Enabled HDMI output $OUTPUT at ${MODE}@${RATE}"
         exit 0
     fi

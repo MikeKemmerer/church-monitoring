@@ -541,13 +541,14 @@ function renderCard(data) {
         var hdmiCol = data.hdmi === 'connected' ? '#27ae60' : (data.hdmi === 'unknown' ? '#7f8c8d' : '#c0392b');
         var hdmiTip = '';
         if (data.hdmi_source || data.hdmi_raw) {
-            hdmiTip = 'Detection source: ' + (data.hdmi_source || 'n/a');
+            hdmiTip = 'Physical connector detection only; does not report TV panel power.' +
+                '\nDetection source: ' + (data.hdmi_source || 'n/a');
             if (data.hdmi_raw) {
                 var details = String(data.hdmi_raw).replace(/;/g, '\n');
                 hdmiTip += '\nConnectors:\n' + details;
             }
         }
-        infoRow.push('<span' + (hdmiTip ? ' title="' + escapeHtml(hdmiTip) + '"' : '') + '>HDMI: <b style="color:' + hdmiCol + '">' + escapeHtml(data.hdmi) + '</b></span>');
+        infoRow.push('<span' + (hdmiTip ? ' title="' + escapeHtml(hdmiTip) + '"' : '') + '>Connector: <b style="color:' + hdmiCol + '">' + escapeHtml(data.hdmi) + '</b></span>');
     }
     if (data.display_signal) {
         var displaySignal = data.display_signal;
@@ -555,10 +556,11 @@ function renderCard(data) {
         var signalColor = signalState === 'active' ? '#27ae60' :
             signalState === 'off' ? '#f39c12' :
             signalState === 'disconnected' ? '#c0392b' : '#7f8c8d';
-        var signalTip = 'X11 output: ' + (displaySignal.output || 'unknown') +
+        var signalTip = 'Computer output state; does not report TV panel power.' +
+            '\nX11 output: ' + (displaySignal.output || 'unknown') +
             '\nConnector: ' + (displaySignal.connection || 'unknown') +
             (displaySignal.mode ? '\nMode: ' + displaySignal.mode : '');
-        infoRow.push('<span title="' + escapeHtml(signalTip) + '">Signal: <b style="color:' + signalColor + '">' + escapeHtml(signalState) + '</b></span>');
+        infoRow.push('<span title="' + escapeHtml(signalTip) + '">Output: <b style="color:' + signalColor + '">' + escapeHtml(signalState) + '</b></span>');
     }
     if (data.software_versions) {
         var versionLabels = [];
