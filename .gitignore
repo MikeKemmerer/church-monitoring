@@ -28,3 +28,10 @@ server/sessions/
 tokens/
 install-server.sh
 install-client.sh
+
+# ntfy alert topic — the only secret for push alerts; never commit a real one.
+# This file is written at /etc/church-monitoring/ntfy-topic on each deployed
+# host, never inside the repo, but this is a safety net in case a local copy
+# is ever created here for testing.
+ntfy-topic
+**/ntfy-topic

@@ -4,12 +4,14 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RELEASE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONF_DIR="/etc/church-monitoring"
 SSL_DIR="$CONF_DIR/ssl"
 CACHE_DIR="/var/cache/church-monitoring"
 CGI_DIR="/usr/lib/cgi-bin/church-monitoring-client"
 LEGACY_CGI_DIR="/usr/lib/cgi-bin/church-monitoring"
 CLIENT_PORT=8033
+VERSION_MANIFEST="$CONF_DIR/installed-version.json"
 
 # ── Help ──────────────────────────────────────────────────────────────
 show_help() {
@@ -23,6 +25,7 @@ Options:
     --renew         Renew the agent certificate (re-enrolls with server)
     --configure-apparmor  Configure Ubuntu Apache AppArmor in complain mode
     --update        Update config and CGI scripts only (keeps certs/enrollment)
+    --config-choice E|I|N  Select existing, installer, or new config during --update
 
 The client installer will:
     1. Install required packages (apache2, openssl, jq)
@@ -57,6 +60,7 @@ EOF
 RENEW=0
 UPDATE=0
 CONFIGURE_APPARMOR=0
+CONFIG_CHOICE_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,15 +68,57 @@ while [[ $# -gt 0 ]]; do
         --renew) RENEW=1; shift ;;
         --configure-apparmor) CONFIGURE_APPARMOR=1; shift ;;
         --update) UPDATE=1; shift ;;
+        --config-choice)
+            CONFIG_CHOICE_OVERRIDE="${2:-}"
+            [[ -n "$CONFIG_CHOICE_OVERRIDE" ]] || { echo "--config-choice requires E, I, or N." >&2; exit 1; }
+            shift 2
+            ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+if [[ -n "$CONFIG_CHOICE_OVERRIDE" ]]; then
+    CONFIG_CHOICE_OVERRIDE=$(echo "$CONFIG_CHOICE_OVERRIDE" | tr '[:lower:]' '[:upper:]')
+    [[ $UPDATE -eq 1 ]] || { echo "--config-choice requires --update." >&2; exit 1; }
+    [[ "$CONFIG_CHOICE_OVERRIDE" =~ ^[EIN]$ ]] || { echo "--config-choice must be E, I, or N." >&2; exit 1; }
+fi
 
 # ── Require root ──────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     echo "This installer must be run as root (use sudo)." >&2
     exit 1
 fi
+
+write_version_manifest() {
+    local release_file="$RELEASE_ROOT/RELEASE.json"
+    local version tag commit installed_at existing
+
+    version=$(tr -d '\r\n' < "$RELEASE_ROOT/VERSION" 2>/dev/null || echo "unknown")
+    tag="v$version"
+    commit=$(git -C "$RELEASE_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")
+    if [[ -r "$release_file" ]]; then
+        version=$(jq -r '.version // empty' "$release_file" 2>/dev/null || echo "$version")
+        tag=$(jq -r '.tag // empty' "$release_file" 2>/dev/null || echo "$tag")
+        commit=$(jq -r '.commit // empty' "$release_file" 2>/dev/null || echo "$commit")
+    fi
+    [[ -n "$version" ]] || version="unknown"
+    [[ -n "$tag" ]] || tag="v$version"
+    [[ -n "$commit" ]] || commit="unknown"
+    installed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    existing=$(jq -c '.' "$VERSION_MANIFEST" 2>/dev/null || echo '{}')
+
+    printf '%s\n' "$existing" | jq \
+        --arg version "$version" \
+        --arg tag "$tag" \
+        --arg commit "$commit" \
+        --arg installed_at "$installed_at" \
+        '.roles = ((.roles // {}) + {client: {version: $version, tag: $tag, commit: $commit, installed_at: $installed_at}})' \
+        > "${VERSION_MANIFEST}.tmp"
+    mv "${VERSION_MANIFEST}.tmp" "$VERSION_MANIFEST"
+    chown root:root "$VERSION_MANIFEST"
+    chmod 644 "$VERSION_MANIFEST"
+    echo "  Installed client version: $tag ($commit)"
+}
 
 configure_apparmor_if_requested() {
     if [[ $CONFIGURE_APPARMOR -eq 1 ]]; then
@@ -214,6 +260,7 @@ echo "Step 3/6: Configuring service monitoring..."
 
 MONITORS="[]"
 CEC_ENABLED="false"
+DISPLAY_CONTROL_JSON="null"
 EXISTING_CONFIG="$CONF_DIR/client-config.json"
 SKIP_CONFIG=0
 
@@ -241,7 +288,12 @@ if [[ $UPDATE -eq 1 ]]; then
     [[ $HAS_BUNDLED -eq 1 ]] && VALID_OPTS="${VALID_OPTS}I/"
     VALID_OPTS="${VALID_OPTS}N"
 
-    read -r -p "  Choose [$VALID_OPTS]: " CONFIG_CHOICE
+    if [[ -n "$CONFIG_CHOICE_OVERRIDE" ]]; then
+        CONFIG_CHOICE="$CONFIG_CHOICE_OVERRIDE"
+        echo "  Using requested choice: $CONFIG_CHOICE"
+    else
+        read -r -p "  Choose [$VALID_OPTS]: " CONFIG_CHOICE
+    fi
     CONFIG_CHOICE=$(echo "$CONFIG_CHOICE" | tr '[:lower:]' '[:upper:]')
 
     case "$CONFIG_CHOICE" in
@@ -259,6 +311,7 @@ if [[ $UPDATE -eq 1 ]]; then
                 echo "  Using installer config.json."
                 MONITORS=$(jq -c '.monitors' "$BUNDLED_CONFIG" 2>/dev/null || echo "[]")
                 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$BUNDLED_CONFIG" 2>/dev/null || echo "false")
+                DISPLAY_CONTROL_JSON=$(jq -c '.display_control // null' "$BUNDLED_CONFIG" 2>/dev/null || echo "null")
                 # Ensure www-data has video group for CEC
                 if [[ "$CEC_ENABLED" == "true" ]]; then
                     usermod -aG video www-data 2>/dev/null || true
@@ -282,6 +335,7 @@ if [[ $SKIP_CONFIG -eq 0 && ("${CONFIG_CHOICE:-N}" == "N" || $UPDATE -eq 0) ]]; 
     # ── Prompt-based config (new install or N choice) ────────────────
     if [[ -f "$BUNDLED_CONFIG" ]]; then
         echo "  Found bundled config.json — using it as template."
+        DISPLAY_CONTROL_JSON=$(jq -c '.display_control // null' "$BUNDLED_CONFIG" 2>/dev/null || echo "null")
 
         # Iterate over each monitor in the bundled config
         while IFS= read -r entry; do
@@ -412,10 +466,12 @@ if [[ $SKIP_CONFIG -eq 0 ]]; then
         --arg hostname "$CLIENT_HOSTNAME" \
         --argjson monitors "$MONITORS" \
         --argjson cec "$CEC_ENABLED" \
+        --argjson display_control "$DISPLAY_CONTROL_JSON" \
         --argjson backup "$SEED_BACKUP" \
         --argjson apps "$SEED_APPS" \
         --arg calendar_images_path "$CALENDAR_IMAGES_PATH" \
         '{hostname:$hostname, monitors:$monitors, cec_enabled:$cec, backup:$backup, apps:$apps}
+         + (if $display_control == null then {} else {display_control:$display_control} end)
          + (if $calendar_images_path == "" then {} else {calendar_images_path: $calendar_images_path} end)' \
         > "$CONF_DIR/client-config.json"
     chmod 644 "$CONF_DIR/client-config.json"
@@ -462,6 +518,8 @@ REQUIRED_CGI=(
     mode-switch.cgi
     calendar-settings.cgi
     browser-scale.cgi
+    display-control.cgi
+    standby-timer.cgi
     list-calendar-images.cgi
     list-archived-calendar-images.cgi
     list-evergreen-images.cgi
@@ -533,6 +591,59 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-browser-
     > /etc/sudoers.d/church-monitoring-browser-scale
 chmod 440 /etc/sudoers.d/church-monitoring-browser-scale
 
+# Install the configured display-control helper.
+cp "$SCRIPT_DIR/church-monitoring-display-control" /usr/local/bin/church-monitoring-display-control
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-display-control
+chmod 755 /usr/local/bin/church-monitoring-display-control
+
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-display-control on, /usr/local/bin/church-monitoring-display-control off" \
+    > /etc/sudoers.d/church-monitoring-display-control
+chmod 440 /etc/sudoers.d/church-monitoring-display-control
+
+# Install the standby countdown adjustment helper.
+cp "$SCRIPT_DIR/church-monitoring-standby-timer" /usr/local/bin/church-monitoring-standby-timer
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-standby-timer
+chmod 755 /usr/local/bin/church-monitoring-standby-timer
+
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-standby-timer plus, /usr/local/bin/church-monitoring-standby-timer minus, /usr/local/bin/church-monitoring-standby-timer reset" \
+    > /etc/sudoers.d/church-monitoring-standby-timer
+chmod 440 /etc/sudoers.d/church-monitoring-standby-timer
+
+install_display_hooks() {
+    local strategy kiosk_user kiosk_home hook action
+
+    strategy=$(jq -r '.display_control.strategy // empty' "$CONF_DIR/client-config.json" 2>/dev/null || echo "")
+    [[ "$strategy" == "hdmi_signal" ]] || return
+
+    kiosk_user=$(systemctl show videokiosk2.service -p User --value 2>/dev/null || echo "")
+    kiosk_home=$(getent passwd "$kiosk_user" | cut -d: -f6)
+    if [[ -z "$kiosk_home" || ! -d "$kiosk_home" ]]; then
+        echo "  HDMI display hooks skipped: kiosk user could not be determined."
+        return
+    fi
+
+    for action in on off; do
+        if [[ "$action" == "on" ]]; then
+            hook="$kiosk_home/tvOn.sh"
+        else
+            hook="$kiosk_home/tvStandby.sh"
+        fi
+        if [[ -e "$hook" ]]; then
+            echo "  Keeping existing display hook: $hook"
+            continue
+        fi
+        cat > "$hook" <<EOF
+#!/usr/bin/env bash
+exec /usr/local/bin/church-monitoring-display-control $action
+EOF
+        chown "$kiosk_user:$kiosk_user" "$hook"
+        chmod 755 "$hook"
+        echo "  Installed HDMI display hook: $hook"
+    done
+}
+
+install_display_hooks
+
 # Install calendar image management helpers (write/archive/restore/store/
 # activate as the church-calendar owner, then regenerate optimized/
 # thumbnail derivatives)
@@ -563,6 +674,15 @@ chmod 440 /etc/sudoers.d/church-monitoring-restart
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
+
+# Install the ntfy alert helper collect.sh uses for health-check and error alerts
+cp "$SCRIPT_DIR/ntfy-notify.sh" /usr/local/bin/ntfy-notify.sh
+chmod 755 /usr/local/bin/ntfy-notify.sh
+echo "    (set the alert topic with: echo YOUR_TOPIC | sudo tee /etc/church-monitoring/ntfy-topic)"
+
+install -d -o root -g root -m 755 /usr/local/share/church-monitoring
+install -o root -g root -m 644 "$RELEASE_ROOT/VERSION" /usr/local/share/church-monitoring/VERSION
+write_version_manifest
 
 # Install DR backup + restore scripts
 cp "$SCRIPT_DIR/backup.sh" /usr/local/bin/church-monitoring-backup

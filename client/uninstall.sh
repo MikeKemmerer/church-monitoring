@@ -90,6 +90,8 @@ rm -f /usr/local/bin/church-monitoring-mode-midori
 rm -f /usr/local/bin/church-monitoring-mode-browser
 rm -f /usr/local/bin/church-monitoring-set-calendar-settings
 rm -f /usr/local/bin/church-monitoring-set-browser-scale
+rm -f /usr/local/bin/church-monitoring-display-control
+rm -f /usr/local/bin/church-monitoring-standby-timer
 rm -f /usr/local/bin/church-monitoring-write-calendar-image
 rm -f /usr/local/bin/church-monitoring-archive-calendar-image
 rm -f /usr/local/bin/church-monitoring-restore-calendar-image
@@ -101,6 +103,8 @@ rm -f /etc/sudoers.d/church-monitoring-restart
 rm -f /etc/sudoers.d/church-monitoring-actions
 rm -f /etc/sudoers.d/church-monitoring-calendar-settings
 rm -f /etc/sudoers.d/church-monitoring-browser-scale
+rm -f /etc/sudoers.d/church-monitoring-display-control
+rm -f /etc/sudoers.d/church-monitoring-standby-timer
 rm -f /etc/sudoers.d/church-monitoring-calendar-images
 
 # Remove lock file

@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# church-monitoring-display-control - Controls the configured display strategy.
+# Must run as root.
+set -euo pipefail
+
+CONFIG="${CHURCH_MONITORING_CONFIG:-/etc/church-monitoring/client-config.json}"
+KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
+COLLECTOR="${CHURCH_MONITORING_COLLECTOR:-/usr/local/bin/church-monitoring-collect}"
+RUNUSER="${CHURCH_MONITORING_RUNUSER:-/usr/sbin/runuser}"
+ACTION="${1:-}"
+
+case "$ACTION" in
+    on|off) ;;
+    *)
+        echo "Usage: church-monitoring-display-control on|off" >&2
+        exit 1
+        ;;
+esac
+
+[[ -r "$CONFIG" ]] || { echo "Monitoring config not found: $CONFIG" >&2; exit 1; }
+
+STRATEGY=$(jq -r '.display_control.strategy // empty' "$CONFIG")
+case "$STRATEGY" in
+    hdmi_signal|bluetooth_hid) ;;
+    *) echo "Supported display control is not enabled" >&2; exit 1 ;;
+esac
+
+KIOSK_USER=$(systemctl show "$KIOSK_SERVICE" -p User --value 2>/dev/null || true)
+[[ "$KIOSK_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Unable to determine kiosk user" >&2; exit 1; }
+KIOSK_UID=$(id -u "$KIOSK_USER")
+KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
+[[ -n "$KIOSK_HOME" ]] || { echo "Unable to determine kiosk home" >&2; exit 1; }
+
+run_as_kiosk() {
+    if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
+        "$@"
+    else
+        [[ -x "$RUNUSER" ]] || { echo "runuser is unavailable" >&2; return 1; }
+        "$RUNUSER" -u "$KIOSK_USER" -- "$@"
+    fi
+}
+
+refresh_status() {
+    if [[ -x "$COLLECTOR" ]]; then
+        "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
+    fi
+}
+
+if [[ "$STRATEGY" == "bluetooth_hid" ]]; then
+    if [[ "$ACTION" == "on" ]]; then
+        HOOK="$KIOSK_HOME/tvOn.sh"
+        COMMAND="wake"
+    else
+        HOOK="$KIOSK_HOME/tvStandby.sh"
+        COMMAND="sleep"
+    fi
+    [[ -x "$HOOK" ]] || { echo "Bluetooth display hook is unavailable: $HOOK" >&2; exit 1; }
+    run_as_kiosk "$HOOK"
+    refresh_status
+    echo "Sent Fire TV Bluetooth $COMMAND command"
+    exit 0
+fi
+
+OUTPUT=$(jq -r '.display_control.output // empty' "$CONFIG")
+MODE=$(jq -r '.display_control.mode // empty' "$CONFIG")
+RATE=$(jq -r '.display_control.rate // empty' "$CONFIG")
+if [[ ! "$OUTPUT" =~ ^[A-Za-z0-9._-]+$ || ! "$MODE" =~ ^[0-9]+x[0-9]+([a-zA-Z0-9._-]+)?$ || ! "$RATE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "Invalid display_control output, mode, or rate" >&2
+    exit 1
+fi
+
+resolve_xauthority() {
+    local candidate
+    local -a candidates=("$KIOSK_HOME/.Xauthority")
+
+    while IFS= read -r -d '' candidate; do
+        candidates+=("$candidate")
+    done < <(
+        find "/run/user/$KIOSK_UID" "$KIOSK_HOME" -maxdepth 3 -type f \
+            \( -name '.Xauthority' -o -name 'Xauthority' -o -name '.mutter-Xwaylandauth.*' \) \
+            -print0 2>/dev/null
+    )
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -r "$candidate" ]] && can_access_x_display "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+can_access_x_display() {
+    local candidate="$1"
+
+    if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
+        env DISPLAY=:0 XAUTHORITY="$candidate" xset q >/dev/null 2>&1
+    else
+        "$RUNUSER" -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$candidate" xset q >/dev/null 2>&1
+    fi
+}
+
+XAUTHORITY=$(resolve_xauthority) || { echo "Unable to access the kiosk X11 display" >&2; exit 1; }
+run_xrandr() {
+    if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
+        env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" XDG_RUNTIME_DIR="/run/user/$KIOSK_UID" xrandr "$@"
+    else
+        "$RUNUSER" -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" \
+            XDG_RUNTIME_DIR="/run/user/$KIOSK_UID" xrandr "$@"
+    fi
+}
+
+if [[ "$ACTION" == "off" ]]; then
+    run_xrandr --output "$OUTPUT" --off
+    refresh_status
+    echo "Disabled HDMI output $OUTPUT"
+    exit 0
+fi
+
+for attempt in $(seq 1 15); do
+    if run_xrandr --output "$OUTPUT" --mode "$MODE" --rate "$RATE"; then
+        refresh_status
+        echo "Enabled HDMI output $OUTPUT at ${MODE}@${RATE}"
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "Unable to enable HDMI output $OUTPUT at ${MODE}@${RATE}" >&2
+exit 1

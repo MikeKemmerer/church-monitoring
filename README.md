@@ -95,6 +95,90 @@ The client auto-detects and offers to monitor:
 | midori | process | Midori web browser |
 | CEC | on-demand | TV power/input via HDMI-CEC |
 
+### Dashboard Status Layout
+
+- Service and process rows show version badges beside the monitored name.
+    Debian package versions are used for Apache, VLC, and supported browsers;
+    application manifests are used for Church Monitoring and videokiosk2; a
+    systemd service's deployed git revision is used as a fallback. Apache rows
+    include all installed Church Monitoring roles because the dashboard/client
+    endpoints run through Apache.
+- Healthy certificate, Tailscale, package-maintenance, firmware, and backup
+    checks are collapsed under **Maintenance details**. Warning and error checks
+    remain visible without expanding anything.
+- A Bluetooth HID-controlled display reports its live channel as `connected`,
+    `waiting`, `inactive`, or `error`. Any state other than `connected` marks the
+    host card as warning.
+
+### HDMI Signal Monitoring
+
+On an X11 kiosk, configure the connector used for HDMI signal control in the
+client configuration. The dashboard then reports `active` when that output has
+an active X11 mode, `off` when the connected output has been disabled, and
+`disconnected` when no display is present:
+
+```json
+"display_control": {
+    "strategy": "hdmi_signal",
+    "output": "HDMI1",
+    "mode": "1920x1080",
+    "rate": 60
+}
+```
+
+Use the connector name reported by `xrandr --query`; names differ by driver,
+for example `HDMI1` and `HDMI-1`. This signal state is independent of CEC and
+does not infer whether the television panel itself is powered on.
+
+### Fire TV Bluetooth Control
+
+When `videokiosk2` has installed and paired its Fire TV Bluetooth HID service,
+Monitoring can expose **Power on** and **Standby** actions with:
+
+```json
+"display_control": {
+    "strategy": "bluetooth_hid",
+    "output": "HDMI1",
+    "mode": "1920x1080",
+    "rate": 60
+}
+```
+
+The client helper resolves the `videokiosk2.service` user and runs that user's
+managed `tvOn.sh` or `tvStandby.sh` hook without granting the dashboard an
+arbitrary command path. Those hooks synchronize Fire TV wake/standby with X11
+HDMI on/off. If Bluetooth is disconnected, the On action still restores HDMI
+and reports a partial result rather than leaving the output off. Bluetooth HID
+does not report authoritative TV panel power state, so the dashboard displays
+the separately measured X11 output state.
+
+### Standby Countdown
+
+When `videokiosk2` shows its failover browser it counts down to `tvStandby.sh`
+(60 minutes by default) and publishes the state in `/run/videokiosk2/standby.json`.
+The collector reports it as `standby_timer` in `status.json`, and the dashboard
+shows an approximate "Standby in ~N min (about HH:MM)" row on that host's card.
+Contributors can add or remove 30 minutes with the card's buttons, or reset to
+the configured default. The adjustment applies only to the current countdown,
+cannot leave less than 5 minutes remaining, and cannot push the total past
+12 hours. The dashboard action runs `church-monitoring-standby-timer` through
+`standby-timer.cgi` and a sudoers rule limited to `plus`, `minus`, and `reset`.
+
+### Error Alerts (ntfy)
+
+`collect.sh` (installed as `church-monitoring-collect`, run every 5 minutes
+by cron) sends a push alert via [ntfy](https://ntfy.sh) whenever: it fails to
+run (uncaught error), a monitored service/process is down, or the encoder
+identity check fails. Repeated identical alerts are suppressed for 30
+minutes. Enable it by writing your topic:
+
+```bash
+echo YOUR_TOPIC | sudo tee /etc/church-monitoring/ntfy-topic
+```
+
+Never commit this file or its value; anyone who knows an ntfy.sh topic can
+read and send to it.
+
 ## Management Commands
 
 Run these on the **server**:
@@ -141,6 +225,7 @@ SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 | `/etc/church-monitoring/tokens/` | Enrollment tokens |
 | `/etc/church-monitoring/users.json` | Dashboard accounts (hashed passwords) |
 | `/etc/church-monitoring/sessions/` | Active login sessions |
+| `/etc/church-monitoring/installed-version.json` | Installed server/client release metadata |
 | `/var/www/church-monitoring/` | Dashboard web root |
 | `/usr/lib/cgi-bin/church-monitoring-server/` | Server CGI scripts |
 
@@ -151,12 +236,21 @@ SHA-512 crypt hashes (`openssl passwd -6`), never in the clear.
 | `/etc/church-monitoring/` | Configuration root |
 | `/etc/church-monitoring/ssl/` | Agent certificate and CA cert |
 | `/etc/church-monitoring/client-config.json` | Service configuration |
+| `/etc/church-monitoring/installed-version.json` | Installed server/client release metadata |
 | `/var/cache/church-monitoring/` | Cached status data |
 | `/usr/lib/cgi-bin/church-monitoring-client/` | Client CGI scripts |
 
 ## Configuration Examples
 
 See `server/config.example.json` and `client/config.example.json` for reference configurations.
+
+## Installed Versions
+
+Every server or client install/update records its release tag, source commit,
+and installation time in `/etc/church-monitoring/installed-version.json`.
+Clients include that data, along with an installed `videokiosk2` version when
+present, in their status payload. The dashboard displays the release tags and
+shows the commit and installation time in the Version tooltip.
 
 ## Releases
 
@@ -185,6 +279,15 @@ On an Ubuntu client, enable its CGI hat the same way:
 
 ```bash
 sudo ./client/install.sh --update --configure-apparmor
+```
+
+For an unattended update, choose the client service configuration explicitly.
+`E` keeps the enrolled host's current config, `I` imports the archive's
+`client/config.json`, and `N` runs the normal service prompts:
+
+```bash
+sudo ./server/install.sh --update
+sudo ./client/install.sh --update --config-choice E
 ```
 
 The shared `configure-apparmor.sh` script never changes Apache's MPM. It skips
