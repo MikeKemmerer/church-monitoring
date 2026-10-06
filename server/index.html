@@ -33,7 +33,9 @@ h1 a:hover{text-decoration:underline}
 .svc-row{display:flex;align-items:center;padding:3px 0;border-bottom:1px solid #0f346040}
 .svc-row:last-child{border-bottom:none}
 .svc-name{flex:1;min-width:0}
+.svc-name-line{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .svc-type{font-size:10px;color:#7f8c8d;background:#0f3460;border-radius:3px;padding:1px 5px;margin-left:6px;flex-shrink:0}
+.svc-version{font-size:10px;color:#b8d8ee;background:#123653;border:1px solid #1a4a7a;border-radius:3px;padding:1px 5px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .svc-status{min-width:80px;text-align:right;margin:0 8px}
 .s-active,.s-running{color:#27ae60}
 .s-inactive,.s-not{color:#c0392b}
@@ -71,6 +73,12 @@ button:disabled{opacity:0.5;cursor:default}
 .badge-err{background:#c0392b;color:#fff}
 .cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
 .cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
+.info-row{font-size:11px;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:5px}
+.standby-row{font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;color:#f39c12}
+.standby-row .btn-group button{padding:2px 6px;font-size:11px}
+.maintenance-details{font-size:11px;color:#7f8c8d;margin-bottom:5px}
+.maintenance-details summary{cursor:pointer;color:#7eb8da;user-select:none}
+.maintenance-items{display:flex;gap:12px;flex-wrap:wrap;padding:5px 0 0 12px}
 .images-panel{display:none;margin-top:8px;background:#0f3460;border-radius:6px;padding:10px}
 .images-upload{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:8px}
 .images-upload label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#ccc}
@@ -395,6 +403,7 @@ function statusClass(s) {
 
 function hostHealth(data) {
     if (data.error) return 'err';
+    if (data.bluetooth_hid && data.bluetooth_hid.status !== 'connected') return 'warn';
     var svcs = data.services || [];
     var bad = false;
 
@@ -465,13 +474,17 @@ function renderMenu(name, data) {
         m += '</div>';
     }
 
-    if (data.display_signal && data.display_signal.output) {
+    if (data.display_control) {
+        var displayControlInfo = data.display_control;
+        var displayLabel = displayControlInfo.label || 'Display';
+        var displayOnLabel = displayControlInfo.on_label || 'On';
+        var displayOffLabel = displayControlInfo.off_label || 'Off';
         m += '<div class="menu-sep"></div>';
-        m += '<button class="menu-item" onclick="toggleSub(event,\'display-' + n + '\')">&#128421; Display (HDMI signal) &#9656;</button>';
+        m += '<button class="menu-item" onclick="toggleSub(event,\'display-' + n + '\')">&#128421; ' + escapeHtml(displayLabel) + ' &#9656;</button>';
         m += '<div class="menu-sub" id="sub-display-' + n + '">';
         if (hasRole('contributor')) {
-            m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'on\')">&#9654; Send signal</button>';
-            m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'off\')">&#9724; Stop signal</button>';
+            m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'on\')">&#9654; ' + escapeHtml(displayOnLabel) + '</button>';
+            m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'off\')">&#9724; ' + escapeHtml(displayOffLabel) + '</button>';
         }
         m += '</div>';
     }
@@ -562,37 +575,31 @@ function renderCard(data) {
             (displaySignal.mode ? '\nMode: ' + displaySignal.mode : '');
         infoRow.push('<span title="' + escapeHtml(signalTip) + '">Output: <b style="color:' + signalColor + '">' + escapeHtml(signalState) + '</b></span>');
     }
-    if (data.software_versions) {
-        var versionLabels = [];
-        var versionDetails = [];
-        var monitoringVersions = data.software_versions.church_monitoring || {};
-        Object.keys(monitoringVersions).sort().forEach(function(role) {
-            var installed = monitoringVersions[role] || {};
-            var release = installed.tag || (installed.version ? 'v' + installed.version : 'unknown');
-            versionLabels.push('CM ' + role + ': ' + release);
-            versionDetails.push('Church Monitoring ' + role + '\nRelease: ' + release +
-                '\nCommit: ' + (installed.commit || 'unknown') +
-                '\nInstalled: ' + (installed.installed_at || 'unknown'));
-        });
-        var kioskVersion = data.software_versions.videokiosk2;
-        if (kioskVersion) {
-            var kioskRelease = kioskVersion.tag || (kioskVersion.version ? 'v' + kioskVersion.version : 'unknown');
-            versionLabels.push('Kiosk: ' + kioskRelease);
-            versionDetails.push('videokiosk2\nRelease: ' + kioskRelease +
-                '\nCommit: ' + (kioskVersion.commit || 'unknown') +
-                '\nInstalled: ' + (kioskVersion.installed_at || 'unknown'));
-        }
-        if (versionLabels.length) {
-            infoRow.push('<span title="' + escapeHtml(versionDetails.join('\n\n')) + '">Version: <b>' + escapeHtml(versionLabels.join(' | ')) + '</b></span>');
-        }
+    if (data.bluetooth_hid) {
+        var bluetoothState = data.bluetooth_hid.status || 'unavailable';
+        var bluetoothColor = bluetoothState === 'connected' ? '#27ae60' :
+            bluetoothState === 'waiting' ? '#f39c12' :
+            bluetoothState === 'inactive' || bluetoothState === 'failed' || bluetoothState === 'error' ? '#c0392b' : '#7f8c8d';
+        var bluetoothTip = 'Fire TV Bluetooth HID channel' +
+            '\nService: ' + (data.bluetooth_hid.service || 'unknown') +
+            (data.bluetooth_hid.remote_address ? '\nRemote: ' + data.bluetooth_hid.remote_address : '');
+        infoRow.push('<span title="' + escapeHtml(bluetoothTip) + '">Bluetooth: <b style="color:' + bluetoothColor + '">' + escapeHtml(bluetoothState) + '</b></span>');
     }
+    var maintenanceMetrics = [];
     (data.slow_metrics || []).forEach(function(m) {
         if (m.status === 'unavailable') return;
         var col = m.status === 'error' ? '#c0392b' : m.status === 'warn' ? '#f39c12' : '#7f8c8d';
-        infoRow.push('<span style="color:' + col + '" title="' + escapeHtml(m.tooltip || '') + '">' + escapeHtml(m.label) + ': ' + escapeHtml(m.value) + '</span>');
+        var metricHtml = '<span style="color:' + col + '" title="' + escapeHtml(m.tooltip || '') + '">' + escapeHtml(m.label) + ': ' + escapeHtml(m.value) + '</span>';
+        if (m.status === 'warn' || m.status === 'error') infoRow.push(metricHtml);
+        else maintenanceMetrics.push(metricHtml);
     });
     if (infoRow.length) {
-        html += '<div style="font-size:11px;display:flex;gap:12px;margin-bottom:5px;">' + infoRow.join('') + '</div>';
+        html += '<div class="info-row">' + infoRow.join('') + '</div>';
+    }
+    html += renderStandbyRow(name, data.standby_timer);
+    if (maintenanceMetrics.length) {
+        html += '<details class="maintenance-details"><summary>Maintenance details (' + maintenanceMetrics.length + ')</summary>' +
+            '<div class="maintenance-items">' + maintenanceMetrics.join('') + '</div></details>';
     }
     if (data.calendar_images) {
         var ci = data.calendar_images;
@@ -607,11 +614,17 @@ function renderCard(data) {
         html += '<div class="svc-list">';
         data.services.forEach(function(svc) {
             var detailHtml = '';
+            var versionHtml = '';
+            (svc.versions || []).forEach(function(version) {
+                var versionTitle = version.detail || (version.label + ' ' + version.value);
+                versionHtml += '<span class="svc-version" title="' + escapeHtml(versionTitle) + '">' +
+                    escapeHtml(version.label + ' ' + version.value) + '</span>';
+            });
             if (svc.detail) {
                 detailHtml = '<div class="svc-type" style="margin-top:2px;max-width:100%;overflow-wrap:anywhere;">' + escapeHtml(svc.detail) + '</div>';
             }
-            html += '<div class="svc-row"><span class="svc-name">' + escapeHtml(svc.name) +
-                '<span class="svc-type">' + svc.type + '</span>' + detailHtml + '</span>' +
+            html += '<div class="svc-row"><span class="svc-name"><span class="svc-name-line">' + escapeHtml(svc.name) +
+                versionHtml + '<span class="svc-type">' + svc.type + '</span></span>' + detailHtml + '</span>' +
                 '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
             html += '</div>';
         });
@@ -704,6 +717,72 @@ function updateCecTimers() {
     });
 }
 
+function renderStandbyRow(name, st) {
+    if (!st) return '';
+    if (st.state === 'fired') {
+        return '<div class="standby-row">&#9201; TV standby sent &mdash; kiosk stays in failover until the next restart</div>';
+    }
+    if (st.state === 'stale') {
+        return '<div class="standby-row" style="color:#c0392b">&#9201; Standby countdown is not updating</div>';
+    }
+    if (st.state !== 'counting' || !st.deadline) return '';
+    var adj = st.adjust_minutes || 0;
+    var tip = 'Failover browser is showing; TV standby runs when this reaches zero.' +
+        '\nTimeout: ' + ((st.base_minutes || 0) + adj) + ' min' +
+        (adj ? ' (' + (adj > 0 ? '+' : '') + adj + ' min adjusted)' : '') +
+        '\nApproximate: based on the last status collection.';
+    var html = '<div class="standby-row" data-ends="' + (st.deadline * 1000) + '" data-min="' + (st.min_remaining_seconds || 300) +
+        '" title="' + escapeHtml(tip) + '"><span>&#9201; Standby in <b class="standby-left"></b> <small class="standby-at"></small></span>';
+    if (hasRole('contributor')) {
+        var n = escapeAttr(name);
+        html += '<span class="btn-group">' +
+            '<button class="standby-minus" onclick="standbyAdjust(\'' + n + '\',\'minus\',this)">&minus;30 min</button>' +
+            '<button onclick="standbyAdjust(\'' + n + '\',\'plus\',this)">+30 min</button>' +
+            (adj ? '<button onclick="standbyAdjust(\'' + n + '\',\'reset\',this)">Reset</button>' : '') +
+            '</span>';
+    }
+    return html + '</div>';
+}
+
+function formatStandbyLeft(seconds) {
+    var m = Math.ceil(seconds / 60);
+    return m >= 60 ? Math.floor(m / 60) + 'h ' + (m % 60) + 'm' : m + ' min';
+}
+
+function updateStandbyTimers() {
+    document.querySelectorAll('.standby-row[data-ends]').forEach(function(row) {
+        var ends = parseInt(row.getAttribute('data-ends'), 10);
+        var min = parseInt(row.getAttribute('data-min'), 10) || 300;
+        var left = Math.max(0, Math.round((ends - Date.now()) / 1000));
+        row.querySelector('.standby-left').textContent = left > 0 ? '~' + formatStandbyLeft(left) : 'moments';
+        row.querySelector('.standby-at').textContent = left > 0 ?
+            '(about ' + new Date(ends).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) + ')' : '';
+        var minus = row.querySelector('.standby-minus');
+        if (minus && !minus.getAttribute('data-busy')) minus.disabled = left - 1800 < min;
+    });
+}
+
+function standbyAdjust(name, delta, btn) {
+    btn.disabled = true;
+    btn.setAttribute('data-busy', '1');
+    fetch('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(name) + '&action=standby-timer&delta=' + encodeURIComponent(delta))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error || data.result === 'failed') {
+                alert('Standby timer change failed: ' + (data.error || 'unknown error'));
+                btn.disabled = false;
+                btn.removeAttribute('data-busy');
+                return;
+            }
+            fetchAll(true);
+        })
+        .catch(function(err) {
+            alert('Standby timer change failed: ' + String(err));
+            btn.disabled = false;
+            btn.removeAttribute('data-busy');
+        });
+}
+
 function fetchAll(force) {
     var cards = document.getElementById('cards');
     var url = '/cgi-bin/fetch-status.cgi';
@@ -722,6 +801,7 @@ function fetchAll(force) {
             var html = '';
             data.forEach(function(d) { html += renderCard(d); });
             cards.innerHTML = html;
+            updateStandbyTimers();
             document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
             fetchDeviceStatus();
         })
@@ -1436,6 +1516,7 @@ function fetchJson(url) {
 checkAuth().then(function() {
     fetchAll();
     cecTimerInterval = setInterval(updateCecTimers, 1000);
+    setInterval(updateStandbyTimers, 1000);
 
     // Auto-refresh
     resetAutoRefresh();

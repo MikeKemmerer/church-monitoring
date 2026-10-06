@@ -9,7 +9,8 @@
 #     display settings to the browser kiosk session (any combination of the
 #     four params; switches the kiosk into browser mode)
 #   browser-scale&scale=1|1.25|1.5|1.75|2|2.5|3|4  - configures Falkon UI scaling
-#   display-control&state=on|off  - enables or disables configured HDMI signal
+#   display-control&state=on|off  - applies the client's configured display strategy
+#   standby-timer&delta=plus|minus|reset  - adjusts the kiosk standby countdown by 30 minutes
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -183,6 +184,17 @@ case "$ACTION" in
                 ;;
         esac
         ENDPOINT="/cgi-bin/display-control.cgi?action=${STATE}"
+        ;;
+    standby-timer)
+        DELTA=$(parse_qs "delta")
+        case "$DELTA" in
+            plus|minus|reset) ;;
+            *)
+                echo '{"error":"invalid standby delta"}'
+                exit 0
+                ;;
+        esac
+        ENDPOINT="/cgi-bin/standby-timer.cgi?action=${DELTA}"
         ;;
     *)
         echo '{"error":"unknown action"}'

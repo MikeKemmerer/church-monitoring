@@ -11,6 +11,82 @@ LOCK="$CACHE_DIR/.collect.lock"
 SLOW_CACHE_DIR="$CACHE_DIR/slow-metrics"
 
 DEFAULT_SLOW_TTL=43200
+COLLECTOR_VERSION_PATH="/usr/local/share/church-monitoring/VERSION"
+
+NTFY_BIN="$(dirname "${BASH_SOURCE[0]}")/ntfy-notify.sh"
+notify() {
+    [[ -x "$NTFY_BIN" ]] && "$NTFY_BIN" -t "church-monitoring ($(hostname))" "$@" &
+    return 0
+}
+trap 'notify -p high -k "collect-failed:$(hostname)" "collect.sh failed on $(hostname) (line $LINENO)"' ERR
+
+get_display_control_info() {
+    local strategy
+
+    strategy=$(jq -r '.display_control.strategy // empty' "$CONFIG" 2>/dev/null || echo "")
+    case "$strategy" in
+        hdmi_signal)
+            jq -n '{strategy:"hdmi_signal", label:"Display (HDMI signal)", on_label:"Send signal", off_label:"Stop signal"}'
+            ;;
+        bluetooth_hid)
+            jq -n '{strategy:"bluetooth_hid", label:"TV + HDMI", on_label:"Power + signal on", off_label:"Standby + signal off"}'
+            ;;
+        *)
+            echo "null"
+            ;;
+    esac
+}
+
+get_bluetooth_hid_info() {
+    local strategy service_state exec_start hid_script response status remote_address
+
+    strategy=$(jq -r '.display_control.strategy // empty' "$CONFIG" 2>/dev/null || echo "")
+    [[ "$strategy" == "bluetooth_hid" ]] || { echo "null"; return; }
+
+    service_state=$(systemctl is-active videokiosk2-firetv-hid.service 2>/dev/null || echo "inactive")
+    status="unavailable"
+    remote_address=""
+    if [[ "$service_state" == "active" ]]; then
+        exec_start=$(systemctl show videokiosk2-firetv-hid.service -p ExecStart --value 2>/dev/null || echo "")
+        hid_script=$(sed -n 's/.*path=\([^ ;]*firetv-hid\.py\).*/\1/p' <<<"$exec_start" | head -1)
+        [[ -x "$hid_script" ]] || hid_script="/opt/videokiosk2/firetv-hid.py"
+        response=$(timeout 3 "$hid_script" send status 2>/dev/null || echo "error")
+        case "$response" in
+            connected\ *)
+                status="connected"
+                remote_address="${response#connected }"
+                ;;
+            waiting) status="waiting" ;;
+            *) status="error" ;;
+        esac
+    elif [[ "$service_state" == "inactive" || "$service_state" == "failed" ]]; then
+        status="$service_state"
+    fi
+
+    jq -n \
+        --arg status "$status" \
+        --arg service "$service_state" \
+        --arg remote_address "$remote_address" \
+        '{status:$status, service:$service} + (if $remote_address == "" then {} else {remote_address:$remote_address} end)'
+}
+
+get_standby_timer_info() {
+    local file="${STANDBY_STATE_FILE:-/run/videokiosk2/standby.json}" now
+    [ -r "$file" ] || { echo "null"; return 0; }
+    now=$(date +%s)
+    # A counting state that has not been refreshed for 2 minutes means the wrapper stopped.
+    jq -c --argjson now "$now" '
+        . as $s
+        | (if $s.state == "counting" and ($now - ($s.updated // 0)) > 120 then "stale" else $s.state end) as $state
+        | {state: $state,
+           base_minutes: $s.base_minutes,
+           adjust_minutes: ($s.adjust_minutes // 0),
+           failover_started: $s.failover_started,
+           deadline: (if $state == "counting" then $s.deadline else null end),
+           remaining_seconds: (if $state == "counting" and $s.deadline != null then ([$s.deadline - $now, 0] | max) else null end),
+           min_remaining_seconds: 300,
+           collected_epoch: $now}' "$file" 2>/dev/null || echo "null"
+}
 
 get_display_signal_info() {
     local output kiosk_user kiosk_home runuser_path xauthority xrandr_output connector_line
@@ -62,6 +138,7 @@ get_display_signal_unavailable() {
 get_software_versions() {
     local monitoring_versions='{}'
     local kiosk_version='null'
+    local collector_version=''
 
     if [[ -r /etc/church-monitoring/installed-version.json ]]; then
         monitoring_versions=$(jq -c '.roles // {}' /etc/church-monitoring/installed-version.json 2>/dev/null || echo '{}')
@@ -69,9 +146,114 @@ get_software_versions() {
     if [[ -r /etc/videokiosk2/installed-version.json ]]; then
         kiosk_version=$(jq -c '.' /etc/videokiosk2/installed-version.json 2>/dev/null || echo 'null')
     fi
+    if [[ -r "$COLLECTOR_VERSION_PATH" ]]; then
+        collector_version=$(tr -d '\r\n' < "$COLLECTOR_VERSION_PATH")
+    fi
+    if [[ -n "$collector_version" ]]; then
+        monitoring_versions=$(jq -c \
+            --arg version "$collector_version" \
+            'if .client == null then . + {client:{version:$version, tag:("v" + $version), commit:"unknown", installed_at:"unknown"}} else . end' \
+            <<<"$monitoring_versions")
+    fi
 
     jq -n --argjson monitoring "$monitoring_versions" --argjson kiosk "$kiosk_version" \
         '{church_monitoring: $monitoring} + (if $kiosk == null then {} else {videokiosk2: $kiosk} end)'
+}
+
+append_version() {
+    local versions="$1"
+    local label="$2"
+    local value="$3"
+    local detail="$4"
+
+    jq -c \
+        --arg lbl "$label" \
+        --arg value "$value" \
+        --arg detail "$detail" \
+        '. + [{label:$lbl, value:$value, detail:$detail}]' <<<"$versions"
+}
+
+get_package_version() {
+    dpkg-query -W -f='${Version}' "$1" 2>/dev/null || true
+}
+
+get_service_versions() {
+    local name="$1"
+    local type="$2"
+    local software_versions="$3"
+    local browser_info="$4"
+    local versions='[]'
+    local package_name package_version role installed release detail
+    local manifest_name manifest_path working_directory git_revision git_commit
+
+    case "$name" in
+        apache2|apache2.service)
+            package_version=$(get_package_version apache2)
+            [[ -n "$package_version" ]] && versions=$(append_version "$versions" "Apache" "$package_version" "Debian package: apache2")
+            while IFS= read -r role; do
+                installed=$(jq -c --arg role "$role" '.church_monitoring[$role]' <<<"$software_versions")
+                release=$(jq -r '.tag // (if .version then "v" + .version else "unknown" end)' <<<"$installed")
+                detail="Church Monitoring $role; commit $(jq -r '.commit // "unknown"' <<<"$installed"); installed $(jq -r '.installed_at // "unknown"' <<<"$installed")"
+                versions=$(append_version "$versions" "CM $role" "$release" "$detail")
+            done < <(jq -r '.church_monitoring // {} | keys[]' <<<"$software_versions")
+            ;;
+        videokiosk2|videokiosk2.service|videokiosk2-scheduler|videokiosk2-scheduler.service|videokiosk2-firetv-hid|videokiosk2-firetv-hid.service)
+            installed=$(jq -c '.videokiosk2 // null' <<<"$software_versions")
+            if [[ "$installed" != "null" ]]; then
+                release=$(jq -r '.tag // (if .version then "v" + .version else "unknown" end)' <<<"$installed")
+                detail="videokiosk2; commit $(jq -r '.commit // "unknown"' <<<"$installed"); installed $(jq -r '.installed_at // "unknown"' <<<"$installed")"
+                versions=$(append_version "$versions" "Kiosk" "$release" "$detail")
+            fi
+            ;;
+        vlc)
+            package_version=$(get_package_version vlc)
+            [[ -n "$package_version" ]] && versions=$(append_version "$versions" "VLC" "$package_version" "Debian package: vlc")
+            ;;
+        browser|midori|falkon)
+            package_name=$(jq -r '.type // empty' <<<"$browser_info")
+            [[ "$name" == "midori" || "$name" == "falkon" ]] && package_name="$name"
+            if [[ "$package_name" == "midori" || "$package_name" == "falkon" ]]; then
+                package_version=$(get_package_version "$package_name")
+                [[ -n "$package_version" ]] && versions=$(append_version "$versions" "${package_name^}" "$package_version" "Debian package: $package_name")
+            fi
+            ;;
+    esac
+
+    if [[ $(jq 'length' <<<"$versions") -eq 0 && "$type" == "systemd" ]]; then
+        manifest_name="${name%.service}"
+        manifest_path="/etc/$manifest_name/installed-version.json"
+        if [[ -r "$manifest_path" ]]; then
+            installed=$(jq -c '.' "$manifest_path" 2>/dev/null || echo 'null')
+            if [[ "$installed" != "null" ]]; then
+                release=$(jq -r '.tag // (if .version then "v" + .version else "unknown" end)' <<<"$installed")
+                detail="$manifest_name; commit $(jq -r '.commit // "unknown"' <<<"$installed"); installed $(jq -r '.installed_at // "unknown"' <<<"$installed")"
+                versions=$(append_version "$versions" "App" "$release" "$detail")
+            fi
+        fi
+    fi
+
+    if [[ $(jq 'length' <<<"$versions") -eq 0 && "$type" == "systemd" ]]; then
+        working_directory=$(systemctl show "$name" -p WorkingDirectory --value 2>/dev/null || true)
+        if [[ -n "$working_directory" && -d "$working_directory/.git" ]]; then
+            git_revision=$(git -c safe.directory="$working_directory" -C "$working_directory" describe --tags --always 2>/dev/null || true)
+            git_commit=$(git -c safe.directory="$working_directory" -C "$working_directory" rev-parse HEAD 2>/dev/null || true)
+            if [[ -n "$git_revision" ]]; then
+                versions=$(append_version "$versions" "Git" "$git_revision" "Working directory: $working_directory; commit ${git_commit:-unknown}")
+            fi
+        fi
+    fi
+
+    if [[ $(jq 'length' <<<"$versions") -eq 0 && ( "$type" == "systemd" || "$type" == "process" ) ]]; then
+        package_name="${name%.service}"
+        package_version=$(get_package_version "$package_name")
+        if [[ -n "$package_version" ]]; then
+            versions=$(append_version "$versions" "$package_name" "$package_version" "Debian package: $package_name")
+        else
+            versions=$(append_version "$versions" "Version" "unknown" "No package or application release manifest was found")
+        fi
+    fi
+
+    printf '%s\n' "$versions"
 }
 
 get_config_ttl() {
@@ -332,17 +514,24 @@ get_mac_for_ip() {
 
 get_kiosk_browser_info() {
     local kiosk_config="/etc/videokiosk2/local.conf"
+    local kiosk_user kiosk_home
     local browser_type="${FAILOVER_BROWSER:-}"
     local browser_scale="${BROWSER_SCALE:-1}"
+
+    if [ ! -r "$kiosk_config" ]; then
+        kiosk_user=$(systemctl show videokiosk2.service -p User --value 2>/dev/null || true)
+        kiosk_home=$(getent passwd "$kiosk_user" 2>/dev/null | cut -d: -f6)
+        if [[ -n "$kiosk_home" && -r "$kiosk_home/local.conf" ]]; then
+            kiosk_config="$kiosk_home/local.conf"
+        fi
+    fi
 
     if [ -r "$kiosk_config" ]; then
         # shellcheck source=/dev/null
         source "$kiosk_config"
-        browser_type="${FAILOVER_BROWSER:-}"
-        browser_scale="${BROWSER_SCALE:-1}"
-    else
-        return 0
     fi
+    browser_type="${FAILOVER_BROWSER:-}"
+    browser_scale="${BROWSER_SCALE:-1}"
 
     if [ "$browser_type" != "falkon" ] && [ "$browser_type" != "midori" ]; then
         if grep -q '^ID=raspbian\|Raspberry Pi OS' /etc/os-release 2>/dev/null; then
@@ -602,15 +791,23 @@ fi
 
 # --- Service/Process Checks ---
 
+BROWSER_INFO=$(get_kiosk_browser_info || echo "null")
+[[ -n "$BROWSER_INFO" ]] || BROWSER_INFO="null"
+SOFTWARE_VERSIONS=$(get_software_versions)
 SERVICES="[]"
 if [ -f "$CONFIG" ]; then
     while IFS= read -r line; do
         NAME=$(echo "$line" | jq -r '.name')
         TYPE=$(echo "$line" | jq -r '.type')
         STATUS="unknown"
+        VERSIONS="[]"
 
         if [ "$TYPE" = "systemd" ]; then
             STATUS=$(systemctl is-active "$NAME" 2>/dev/null || echo "inactive")
+            if [ "$STATUS" != "active" ]; then
+                notify -p high -k "service-down:$(hostname):$NAME" \
+                    "$NAME is $STATUS on $(hostname)"
+            fi
         elif [ "$TYPE" = "process" ]; then
             MATCH=$(echo "$line" | jq -r '.match // empty')
             if [ -n "$MATCH" ]; then
@@ -623,12 +820,17 @@ if [ -f "$CONFIG" ]; then
                 STATUS="running ($COUNT)"
             else
                 STATUS="not running"
+                notify -p high -k "service-down:$(hostname):$NAME" \
+                    "$NAME is not running on $(hostname)"
             fi
         fi
 
+        VERSIONS=$(get_service_versions "$NAME" "$TYPE" "$SOFTWARE_VERSIONS" "$BROWSER_INFO")
+
         SERVICES=$(echo "$SERVICES" | jq \
             --arg n "$NAME" --arg t "$TYPE" --arg s "$STATUS" \
-            '. + [{"name":$n,"type":$t,"status":$s}]')
+            --argjson versions "$VERSIONS" \
+            '. + [{"name":$n,"type":$t,"status":$s,"versions":$versions}]')
     done < <(jq -c '.monitors[]' "$CONFIG" 2>/dev/null || true)
 
     # Optional informational check: verify encoder host mapping + MAC + connectivity.
@@ -679,6 +881,10 @@ if [ -f "$CONFIG" ]; then
         SERVICES=$(echo "$SERVICES" | jq \
             --arg n "encoder_identity" --arg t "info" --arg s "$ENC_STATUS" --arg d "$ENC_DETAIL" \
             '. + [{"name":$n,"type":$t,"status":$s,"detail":$d}]')
+        if [ "$ENC_STATUS" != "ok" ]; then
+            notify -p high -k "encoder-down:$(hostname)" \
+                "Encoder check failed on $(hostname): $ENC_DETAIL"
+        fi
     fi
 fi
 
@@ -687,9 +893,10 @@ fi
 HOSTNAME_VAL=$(jq -r '.hostname // empty' "$CONFIG" 2>/dev/null || hostname)
 [ -z "$HOSTNAME_VAL" ] && HOSTNAME_VAL=$(hostname)
 CEC_ENABLED=$(jq -r '.cec_enabled // false' "$CONFIG" 2>/dev/null || echo "false")
-BROWSER_INFO=$(get_kiosk_browser_info || true)
+DISPLAY_CONTROL=$(get_display_control_info)
+BLUETOOTH_HID=$(get_bluetooth_hid_info)
+STANDBY_TIMER=$(get_standby_timer_info)
 DISPLAY_SIGNAL=$(get_display_signal_info || get_display_signal_unavailable || echo "null")
-SOFTWARE_VERSIONS=$(get_software_versions)
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 jq -n \
@@ -717,6 +924,9 @@ jq -n \
     --argjson services "$SERVICES" \
     --argjson cec "$CEC_ENABLED" \
     --argjson browser "${BROWSER_INFO:-null}" \
+    --argjson display_control "$DISPLAY_CONTROL" \
+    --argjson bluetooth_hid "$BLUETOOTH_HID" \
+    --argjson standby_timer "$STANDBY_TIMER" \
     --argjson display_signal "$DISPLAY_SIGNAL" \
     --argjson software_versions "$SOFTWARE_VERSIONS" \
     '{
@@ -736,6 +946,9 @@ jq -n \
         services: $services,
         browser: $browser,
         cec_enabled: $cec,
+        display_control: $display_control,
+        bluetooth_hid: $bluetooth_hid,
+        standby_timer: $standby_timer,
         display_signal: $display_signal,
         software_versions: $software_versions
     }' > "${CACHE}.tmp"

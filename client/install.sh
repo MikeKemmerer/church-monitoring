@@ -519,6 +519,7 @@ REQUIRED_CGI=(
     calendar-settings.cgi
     browser-scale.cgi
     display-control.cgi
+    standby-timer.cgi
     list-calendar-images.cgi
     list-archived-calendar-images.cgi
     list-evergreen-images.cgi
@@ -590,7 +591,7 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-set-browser-
     > /etc/sudoers.d/church-monitoring-browser-scale
 chmod 440 /etc/sudoers.d/church-monitoring-browser-scale
 
-# Install HDMI signal display-control helper.
+# Install the configured display-control helper.
 cp "$SCRIPT_DIR/church-monitoring-display-control" /usr/local/bin/church-monitoring-display-control
 sed -i 's/\r$//' /usr/local/bin/church-monitoring-display-control
 chmod 755 /usr/local/bin/church-monitoring-display-control
@@ -598,6 +599,15 @@ chmod 755 /usr/local/bin/church-monitoring-display-control
 echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-display-control on, /usr/local/bin/church-monitoring-display-control off" \
     > /etc/sudoers.d/church-monitoring-display-control
 chmod 440 /etc/sudoers.d/church-monitoring-display-control
+
+# Install the standby countdown adjustment helper.
+cp "$SCRIPT_DIR/church-monitoring-standby-timer" /usr/local/bin/church-monitoring-standby-timer
+sed -i 's/\r$//' /usr/local/bin/church-monitoring-standby-timer
+chmod 755 /usr/local/bin/church-monitoring-standby-timer
+
+echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-standby-timer plus, /usr/local/bin/church-monitoring-standby-timer minus, /usr/local/bin/church-monitoring-standby-timer reset" \
+    > /etc/sudoers.d/church-monitoring-standby-timer
+chmod 440 /etc/sudoers.d/church-monitoring-standby-timer
 
 install_display_hooks() {
     local strategy kiosk_user kiosk_home hook action
@@ -664,6 +674,14 @@ chmod 440 /etc/sudoers.d/church-monitoring-restart
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
+
+# Install the ntfy alert helper collect.sh uses for health-check and error alerts
+cp "$SCRIPT_DIR/ntfy-notify.sh" /usr/local/bin/ntfy-notify.sh
+chmod 755 /usr/local/bin/ntfy-notify.sh
+echo "    (set the alert topic with: echo YOUR_TOPIC | sudo tee /etc/church-monitoring/ntfy-topic)"
+
+install -d -o root -g root -m 755 /usr/local/share/church-monitoring
+install -o root -g root -m 644 "$RELEASE_ROOT/VERSION" /usr/local/share/church-monitoring/VERSION
 write_version_manifest
 
 # Install DR backup + restore scripts

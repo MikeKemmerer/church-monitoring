@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# church-monitoring-standby-timer - Extends or shortens the kiosk standby countdown.
+# Must run as root. Usage: church-monitoring-standby-timer plus|minus|reset
+set -euo pipefail
+
+STATE_DIR="${CHURCH_MONITORING_STANDBY_DIR:-/run/videokiosk2}"
+STATE_FILE="$STATE_DIR/standby.json"
+ADJUST_FILE="$STATE_DIR/standby-adjust"
+COLLECTOR="${CHURCH_MONITORING_COLLECTOR:-/usr/local/bin/church-monitoring-collect}"
+STEP_MINUTES=30
+MIN_REMAINING_SECONDS=300
+MAX_TOTAL_MINUTES=720
+STALE_SECONDS=120
+ACTION="${1:-}"
+
+die() { echo "$1" >&2; exit 1; }
+
+case "$ACTION" in
+    plus|minus|reset) ;;
+    *) die "Usage: church-monitoring-standby-timer plus|minus|reset" ;;
+esac
+
+[[ -r "$STATE_FILE" ]] || die "No standby countdown on this host"
+
+read_field() { jq -r --arg k "$1" '.[$k] // empty' "$STATE_FILE"; }
+
+STATE=$(read_field state)
+[[ "$STATE" == "counting" ]] || die "Standby is not counting down (state: ${STATE:-unknown})"
+
+BASE=$(read_field base_minutes)
+ADJUST=$(read_field adjust_minutes)
+DEADLINE=$(read_field deadline)
+UPDATED=$(read_field updated)
+UNIT=$(read_field unit_seconds)
+UNIT="${UNIT:-60}"
+for value in "$BASE" "$DEADLINE" "$UPDATED" "$UNIT"; do
+    [[ "$value" =~ ^[0-9]+$ ]] || die "Standby state file is invalid"
+done
+[[ "$ADJUST" =~ ^-?[0-9]+$ ]] || die "Standby state file is invalid"
+
+NOW=$(date +%s)
+(( NOW - UPDATED <= STALE_SECONDS )) || die "Standby countdown is not being updated by the kiosk"
+
+case "$ACTION" in
+    plus) NEW_ADJUST=$((ADJUST + STEP_MINUTES)) ;;
+    minus) NEW_ADJUST=$((ADJUST - STEP_MINUTES)) ;;
+    reset) NEW_ADJUST=0 ;;
+esac
+
+(( BASE + NEW_ADJUST <= MAX_TOTAL_MINUTES )) || die "Standby timeout cannot exceed $((MAX_TOTAL_MINUTES / 60)) hours"
+
+NEW_DEADLINE=$((DEADLINE + (NEW_ADJUST - ADJUST) * UNIT))
+REMAINING=$((NEW_DEADLINE - NOW))
+(( REMAINING >= MIN_REMAINING_SECONDS )) || die "Standby cannot be shortened to less than $((MIN_REMAINING_SECONDS / 60)) minutes from now"
+
+write_atomic() {
+    local dest="$1" tmp
+    tmp=$(mktemp "$STATE_DIR/.tmp.XXXXXX")
+    cat >"$tmp"
+    chmod 644 "$tmp"
+    mv -f "$tmp" "$dest"
+}
+
+printf '%s\n' "$NEW_ADJUST" | write_atomic "$ADJUST_FILE"
+# Patch the state file now so the dashboard does not wait for the wrapper's next tick.
+jq -c --argjson adj "$NEW_ADJUST" --argjson dl "$NEW_DEADLINE" --argjson now "$NOW" \
+    '.adjust_minutes = $adj | .deadline = $dl | .updated = $now' "$STATE_FILE" | write_atomic "$STATE_FILE"
+
+if [[ -x "$COLLECTOR" ]]; then
+    "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
+fi
+
+jq -n --argjson adj "$NEW_ADJUST" --argjson remaining "$REMAINING" \
+    '{adjust_minutes: $adj, remaining_seconds: $remaining}'

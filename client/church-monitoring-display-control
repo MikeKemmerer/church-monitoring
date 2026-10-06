@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# church-monitoring-display-control - Controls the configured X11 HDMI signal.
+# church-monitoring-display-control - Controls the configured display strategy.
 # Must run as root.
 set -euo pipefail
 
 CONFIG="${CHURCH_MONITORING_CONFIG:-/etc/church-monitoring/client-config.json}"
 KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
 COLLECTOR="${CHURCH_MONITORING_COLLECTOR:-/usr/local/bin/church-monitoring-collect}"
+RUNUSER="${CHURCH_MONITORING_RUNUSER:-/usr/sbin/runuser}"
 ACTION="${1:-}"
 
 case "$ACTION" in
@@ -19,24 +20,54 @@ esac
 [[ -r "$CONFIG" ]] || { echo "Monitoring config not found: $CONFIG" >&2; exit 1; }
 
 STRATEGY=$(jq -r '.display_control.strategy // empty' "$CONFIG")
-OUTPUT=$(jq -r '.display_control.output // empty' "$CONFIG")
-MODE=$(jq -r '.display_control.mode // empty' "$CONFIG")
-RATE=$(jq -r '.display_control.rate // empty' "$CONFIG")
-
-if [[ "$STRATEGY" != "hdmi_signal" ]]; then
-    echo "HDMI signal display control is not enabled" >&2
-    exit 1
-fi
-if [[ ! "$OUTPUT" =~ ^[A-Za-z0-9._-]+$ || ! "$MODE" =~ ^[0-9]+x[0-9]+([a-zA-Z0-9._-]+)?$ || ! "$RATE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "Invalid display_control output, mode, or rate" >&2
-    exit 1
-fi
+case "$STRATEGY" in
+    hdmi_signal|bluetooth_hid) ;;
+    *) echo "Supported display control is not enabled" >&2; exit 1 ;;
+esac
 
 KIOSK_USER=$(systemctl show "$KIOSK_SERVICE" -p User --value 2>/dev/null || true)
 [[ "$KIOSK_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Unable to determine kiosk user" >&2; exit 1; }
 KIOSK_UID=$(id -u "$KIOSK_USER")
 KIOSK_HOME=$(getent passwd "$KIOSK_USER" | cut -d: -f6)
 [[ -n "$KIOSK_HOME" ]] || { echo "Unable to determine kiosk home" >&2; exit 1; }
+
+run_as_kiosk() {
+    if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
+        "$@"
+    else
+        [[ -x "$RUNUSER" ]] || { echo "runuser is unavailable" >&2; return 1; }
+        "$RUNUSER" -u "$KIOSK_USER" -- "$@"
+    fi
+}
+
+refresh_status() {
+    if [[ -x "$COLLECTOR" ]]; then
+        "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
+    fi
+}
+
+if [[ "$STRATEGY" == "bluetooth_hid" ]]; then
+    if [[ "$ACTION" == "on" ]]; then
+        HOOK="$KIOSK_HOME/tvOn.sh"
+        COMMAND="wake"
+    else
+        HOOK="$KIOSK_HOME/tvStandby.sh"
+        COMMAND="sleep"
+    fi
+    [[ -x "$HOOK" ]] || { echo "Bluetooth display hook is unavailable: $HOOK" >&2; exit 1; }
+    run_as_kiosk "$HOOK"
+    refresh_status
+    echo "Sent Fire TV Bluetooth $COMMAND command"
+    exit 0
+fi
+
+OUTPUT=$(jq -r '.display_control.output // empty' "$CONFIG")
+MODE=$(jq -r '.display_control.mode // empty' "$CONFIG")
+RATE=$(jq -r '.display_control.rate // empty' "$CONFIG")
+if [[ ! "$OUTPUT" =~ ^[A-Za-z0-9._-]+$ || ! "$MODE" =~ ^[0-9]+x[0-9]+([a-zA-Z0-9._-]+)?$ || ! "$RATE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "Invalid display_control output, mode, or rate" >&2
+    exit 1
+fi
 
 resolve_xauthority() {
     local candidate
@@ -65,7 +96,7 @@ can_access_x_display() {
     if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
         env DISPLAY=:0 XAUTHORITY="$candidate" xset q >/dev/null 2>&1
     else
-        runuser -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$candidate" xset q >/dev/null 2>&1
+        "$RUNUSER" -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$candidate" xset q >/dev/null 2>&1
     fi
 }
 
@@ -74,14 +105,8 @@ run_xrandr() {
     if [[ "$(id -un)" == "$KIOSK_USER" ]]; then
         env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" XDG_RUNTIME_DIR="/run/user/$KIOSK_UID" xrandr "$@"
     else
-        runuser -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" \
+        "$RUNUSER" -u "$KIOSK_USER" -- env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" \
             XDG_RUNTIME_DIR="/run/user/$KIOSK_UID" xrandr "$@"
-    fi
-}
-
-refresh_status() {
-    if [[ -x "$COLLECTOR" ]]; then
-        "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
     fi
 }
 
@@ -102,4 +127,4 @@ for attempt in $(seq 1 15); do
 done
 
 echo "Unable to enable HDMI output $OUTPUT at ${MODE}@${RATE}" >&2
-exit 1
+exit 1

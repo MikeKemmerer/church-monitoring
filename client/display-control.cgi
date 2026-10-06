@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# display-control.cgi - Enables or disables the configured X11 HDMI signal.
+# display-control.cgi - Applies the configured display on/off strategy.
 
 echo "Content-Type: application/json"
 echo ""
@@ -18,9 +18,16 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 OUTPUT=$(sudo /usr/local/bin/church-monitoring-display-control "$ACTION" 2>&1)
 RC=$?
 
-if [[ "$RC" -eq 0 ]]; then
-    printf '{"action":"%s","result":"applied","timestamp":"%s"}\n' "$ACTION" "$TIMESTAMP"
-else
-    printf '{"action":"%s","result":"failed","error":%s,"timestamp":"%s"}\n' \
-        "$ACTION" "$(printf '%s' "$OUTPUT" | jq -Rs .)" "$TIMESTAMP"
-fi
+case "$RC" in
+    0)
+        printf '{"action":"%s","result":"applied","timestamp":"%s"}\n' "$ACTION" "$TIMESTAMP"
+        ;;
+    2)
+        printf '{"action":"%s","result":"partial","warning":%s,"timestamp":"%s"}\n' \
+            "$ACTION" "$(printf '%s' "$OUTPUT" | jq -Rs .)" "$TIMESTAMP"
+        ;;
+    *)
+        printf '{"action":"%s","result":"failed","error":%s,"timestamp":"%s"}\n' \
+            "$ACTION" "$(printf '%s' "$OUTPUT" | jq -Rs .)" "$TIMESTAMP"
+        ;;
+esac
