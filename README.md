@@ -179,6 +179,30 @@ echo YOUR_TOPIC | sudo tee /etc/church-monitoring/ntfy-topic
 Never commit this file or its value; anyone who knows an ntfy.sh topic can
 read and send to it.
 
+These automatic alerts only fire while a church service is active, per the
+Church Calendar's restart-schedule API (`SERVICE_WINDOW_URL`, default
+`http://liturgystream2:8000/api/service-restart-schedule`); if that check is
+unreachable the gate fails open rather than silently dropping a real alert.
+Pass `-A` to `ntfy-notify.sh` for an alert that should always send regardless
+of the gate (used by the two on-demand/scheduled scripts below).
+
+### Status digest and device checks (server)
+
+Two optional, read-only server-side scripts build on the same
+`server-config.json` used by `fetch-status.cgi`/`device-status.cgi`:
+
+- `server/church-status-report.sh [--notify]` — prints a one-shot summary of
+  every configured client and device; pass `--notify` to also push it as a
+  single consolidated ntfy alert (always sent, via `-A`). Intended to be run
+  on demand (e.g. "what's the status right now?"), not on a schedule.
+- `server/camera-reachability-check.sh` — checks one named device from
+  `devices[]` (default `Camera`, override with `CAMERA_DEVICE_NAME`) and
+  sends an alert (always sent, via `-A`) only when it's unreachable; no
+  alert when reachable, no recovery notice. Intended for cron, e.g. every
+  5 minutes, so it runs continuously even outside a service window.
+
+Both require `jq`, `curl`, and `ntfy-notify.sh` at `/usr/local/bin/ntfy-notify.sh`.
+
 ## Management Commands
 
 Run these on the **server**:
