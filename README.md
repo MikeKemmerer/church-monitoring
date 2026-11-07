@@ -164,6 +164,27 @@ cannot leave less than 5 minutes remaining, and cannot push the total past
 12 hours. The dashboard action runs `church-monitoring-standby-timer` through
 `standby-timer.cgi` and a sudoers rule limited to `plus`, `minus`, and `reset`.
 
+### Calendar Image Scheduling
+
+Uploading, restoring from the archive, and activating an evergreen image all use
+the same chooser, which has no default: pick **Persistent** (always shown) or
+**Scheduled** (optional start date, required last day shown, optional
+auto-archive). An image is shown through its last day and hidden the next day;
+with auto-archive on, church-calendar moves it to `images/archive/` after that
+day. Restored and activated images always start with the dates chosen in the
+dialog, never their old ones. Tiles show `starts …` / `ends …` / `auto-archive`
+badges, and the expired count in `status.json` comes from the schedule.
+
+The schedule lives in church-calendar (`image_schedule.py`, `images/image-schedule.json`)
+and needs church-calendar v1.1.0-rc.3 or newer; the helpers take a shared lock
+with the calendar so a file move and its schedule entry change together. On an
+older calendar, an upload is still written with its end date in the filename but
+reports that the schedule was not applied, and restore/activate are refused and
+leave the image where it was.
+
+`tests/test-image-schedule-helpers.sh` (needs a church-calendar checkout) and
+`tests/test-upload-cgi-validation.sh` cover the helpers and upload validation.
+
 ### Error Alerts (ntfy)
 
 `collect.sh` (installed as `church-monitoring-collect`, run every 5 minutes

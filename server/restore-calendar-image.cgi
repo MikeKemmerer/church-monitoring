@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # restore-calendar-image.cgi — Proxies a calendar image restore request to a
 # client (moves the image from images/archive/ back into images/ on the
-# client). Called with ?host=<client_name>&filename=<name>
+# client). Called with ?host=<client_name>&filename=<name>&mode=persistent|scheduled
+# [&show_from=D][&remove_after=D][&auto_archive=1]
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -46,9 +47,16 @@ fi
 HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
+# Schedule choices are re-validated by the client; here they are only restricted to safe characters.
+SCHEDULE_QS=""
+for PARAM in mode show_from remove_after auto_archive; do
+    VALUE=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^${PARAM}=" | cut -d= -f2- | head -1 | tr -cd 'a-z0-9-')
+    [ -z "$VALUE" ] || SCHEDULE_QS="${SCHEDULE_QS}&${PARAM}=${VALUE}"
+done
+
 DATA=$(curl -s --connect-timeout 5 --max-time 20 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/restore-calendar-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
+    "https://${HOST}:${PORT}/cgi-bin/restore-calendar-image.cgi?filename=${RAW_FILENAME}${SCHEDULE_QS}" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
     echo '{"error":"restore failed or timed out"}'

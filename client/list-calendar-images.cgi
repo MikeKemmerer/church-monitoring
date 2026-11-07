@@ -33,6 +33,15 @@ OPTIMIZED_DIR="$IMAGES_DIR/optimized"
 THUMB_DIR="$IMAGES_DIR/thumbnails"
 TODAY=$(date +%Y-%m-%d)
 
+# church-calendar's image schedule is the source of truth for start/end dates; read-only
+# because this runs as the web user. Older calendars without it fall back to filename dates.
+SCHEDULER="$(dirname "$IMAGES_DIR")/image_schedule.py"
+SCHEDULE_JSON='{"images":[]}'
+if [ -f "$SCHEDULER" ]; then
+    SCHEDULE_JSON=$(python3 "$SCHEDULER" --images-dir "$IMAGES_DIR" list --read-only 2>/dev/null) || SCHEDULE_JSON='{"images":[]}'
+    [ -n "$SCHEDULE_JSON" ] || SCHEDULE_JSON='{"images":[]}'
+fi
+
 # Entries are appended as compact JSON lines to a temp file and combined
 # with `jq -s` at the end, rather than round-tripped through jq --argjson
 # on every iteration. Preview data is passed to jq via --rawfile (reads the
@@ -54,6 +63,18 @@ while IFS= read -r f; do
     if [ -n "$FILE_DATE" ] && [[ "$FILE_DATE" < "$TODAY" ]]; then
         STALE="true"
     fi
+    STATE=""
+    SHOW_FROM=""
+    AUTO_ARCHIVE="false"
+    ROW=$(echo "$SCHEDULE_JSON" | jq -c --arg f "$BASENAME" '[.images[] | select(.filename == $f)][0] // empty' 2>/dev/null || echo "")
+    if [ -n "$ROW" ]; then
+        STATE=$(echo "$ROW" | jq -r '.state')
+        FILE_DATE=$(echo "$ROW" | jq -r '.remove_after // ""')
+        SHOW_FROM=$(echo "$ROW" | jq -r '.show_from // ""')
+        AUTO_ARCHIVE=$(echo "$ROW" | jq -r '.auto_archive')
+        STALE="false"
+        [ "$STATE" = "expired" ] && STALE="true"
+    fi
 
     # Prefer the larger 'optimized' WebP (up to 800x600 @ quality 85, already
     # generated for the calendar's own slideshow) over the tiny 50x50 thumbnail
@@ -73,11 +94,18 @@ while IFS= read -r f; do
         --argjson size "$SIZE" \
         --arg mtime "$MTIME" \
         --arg event_date "$FILE_DATE" \
+        --arg state "$STATE" \
+        --arg show_from "$SHOW_FROM" \
+        --argjson auto_archive "$AUTO_ARCHIVE" \
         --argjson stale "$STALE" \
         --argjson has_thumb "$HAS_THUMB" \
         --rawfile thumb_b64 "$THUMB_B64_FILE" \
         '{filename:$filename, size:$size, mtime:$mtime,
           event_date: (if $event_date == "" then null else $event_date end),
+          show_from: (if $show_from == "" then null else $show_from end),
+          remove_after: (if $event_date == "" then null else $event_date end),
+          auto_archive: $auto_archive,
+          state: (if $state == "" then null else $state end),
           stale:$stale,
           thumbnail: (if $has_thumb then ("data:image/webp;base64," + $thumb_b64) else null end)}' \
         >> "$ENTRIES_FILE"

@@ -70,6 +70,7 @@ button:disabled{opacity:0.5;cursor:default}
 .menu-sub.open{display:block}
 .badge{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:3px;font-weight:600;vertical-align:middle}
 .badge-warn{background:#f39c12;color:#000}
+.badge-info{background:#1a4a7a;color:#e8f4fd}
 .badge-err{background:#c0392b;color:#fff}
 .cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
 .cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
@@ -88,6 +89,17 @@ button:disabled{opacity:0.5;cursor:default}
 .img-tile img{width:100%;height:60px;object-fit:cover;border-radius:4px;cursor:pointer}
 .img-noThumb{width:100%;height:60px;display:flex;align-items:center;justify-content:center;font-size:24px;background:#0a1a35;border-radius:4px}
 .img-name{font-size:9px;color:#a0a0c0;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sched-fields{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;font-size:11px;color:#ccc}
+.sched-mode{display:flex;gap:10px;align-items:center;padding-bottom:4px}
+.sched-mode label,.sched-check{display:flex;flex-direction:row;align-items:center;gap:4px}
+.sched-dates{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.sched-dates label{display:flex;flex-direction:column;gap:2px}
+.sched-dates .sched-check{flex-direction:row;padding-bottom:4px}
+.sched-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000}
+.sched-dialog{background:#16213e;border:1px solid #1a4a7a;border-radius:8px;padding:16px;max-width:420px;width:90%}
+.sched-dialog h3{margin:0 0 6px;font-size:14px}
+.sched-file{font-size:11px;color:#a0a0c0;margin-bottom:10px;word-break:break-all}
+.sched-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
@@ -1200,7 +1212,7 @@ function renderImagesPanel(host, data, panel) {
     var html = '';
     if (hasRole('contributor')) {
         html += '<div class="images-upload">';
-        html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+        html += scheduleFieldsHtml('up-' + id);
         html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
         html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
         html += '</div>';
@@ -1223,7 +1235,8 @@ function renderImagesPanel(host, data, panel) {
                 html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
             }
             html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
-            if (img.stale) html += '<span class="badge badge-warn">stale</span>';
+            if (img.state) html += scheduleBadgeHtml(img);
+            else if (img.stale) html += '<span class="badge badge-warn">stale</span>';
             if (hasRole('contributor')) {
                 html += '<div style="display:flex;gap:3px;justify-content:center;margin-top:3px">';
                 html += '<button class="btn-danger" style="font-size:10px;padding:2px 5px" onclick="archiveCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Archive</button>';
@@ -1297,17 +1310,19 @@ function renderArchivePanel(host, data, panel) {
 }
 
 function restoreCalendarImageUI(host, filename) {
-    fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
-        .then(function(data) {
-            if (data.error || data.result === 'failed') {
-                alert('Restore failed: ' + (data.error || 'unknown error'));
-                return;
-            }
-            loadArchivePanel(host);
-            loadImagesPanel(host);
-            setTimeout(function() { refreshOne(host); }, 1000);
-        })
-        .catch(function(err) { alert('Restore failed: ' + err); });
+    openScheduleDialog('Restore image', filename, 'Restore', function(sched) {
+        fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename) + scheduleQuery(sched))
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    alert('Restore failed: ' + (data.error || 'unknown error'));
+                    return;
+                }
+                loadArchivePanel(host);
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) { alert('Restore failed: ' + err); });
+    });
 }
 
 function toggleEvergreenPanel(host) {
@@ -1376,17 +1391,97 @@ function storeEvergreenImageUI(host, filename) {
 }
 
 function activateEvergreenImageUI(host, filename) {
-    fetchJson('/cgi-bin/activate-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
-        .then(function(data) {
-            if (data.error || data.result === 'failed') {
-                alert('Activate failed: ' + (data.error || 'unknown error'));
-                return;
-            }
-            loadEvergreenPanel(host);
-            loadImagesPanel(host);
-            setTimeout(function() { refreshOne(host); }, 1000);
-        })
-        .catch(function(err) { alert('Activate failed: ' + err); });
+    openScheduleDialog('Activate evergreen image', filename, 'Activate', function(sched) {
+        fetchJson('/cgi-bin/activate-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename) + scheduleQuery(sched))
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    alert('Activate failed: ' + (data.error || 'unknown error'));
+                    return;
+                }
+                loadEvergreenPanel(host);
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) { alert('Activate failed: ' + err); });
+    });
+}
+
+// ---- Display schedule chooser (shared by upload, restore and evergreen activation) ----
+// No default: the operator must pick Persistent or Scheduled.
+function scheduleFieldsHtml(prefix) {
+    var h = '<div class="sched-fields">';
+    h += '<div class="sched-mode">';
+    h += '<label><input type="radio" name="' + prefix + '-mode" value="persistent" onchange="scheduleModeChanged(\'' + prefix + '\')"> Persistent</label>';
+    h += '<label><input type="radio" name="' + prefix + '-mode" value="scheduled" onchange="scheduleModeChanged(\'' + prefix + '\')"> Scheduled</label>';
+    h += '</div>';
+    h += '<div class="sched-dates" id="' + prefix + '-dates" style="display:none">';
+    h += '<label>Show from (optional)<input type="date" id="' + prefix + '-from"></label>';
+    h += '<label>Last day shown<input type="date" id="' + prefix + '-to"></label>';
+    h += '<label class="sched-check"><input type="checkbox" id="' + prefix + '-auto"> Auto-archive after last day</label>';
+    h += '</div></div>';
+    return h;
+}
+
+function scheduleModeChanged(prefix) {
+    var sel = document.querySelector('input[name="' + prefix + '-mode"]:checked');
+    var dates = document.getElementById(prefix + '-dates');
+    if (dates) dates.style.display = sel && sel.value === 'scheduled' ? 'flex' : 'none';
+}
+
+// Returns {mode, show_from, remove_after, auto_archive} or null (after alerting) if incomplete.
+function readSchedule(prefix) {
+    var sel = document.querySelector('input[name="' + prefix + '-mode"]:checked');
+    if (!sel) { alert('Choose Persistent or Scheduled.'); return null; }
+    if (sel.value === 'persistent') return {mode: 'persistent'};
+    var from = document.getElementById(prefix + '-from').value;
+    var to = document.getElementById(prefix + '-to').value;
+    if (!to) { alert('Choose the last day this image should be shown.'); return null; }
+    if (from && to < from) { alert('The last day cannot be before the start date.'); return null; }
+    return {mode: 'scheduled', show_from: from, remove_after: to, auto_archive: document.getElementById(prefix + '-auto').checked};
+}
+
+function scheduleQuery(s) {
+    var q = '&mode=' + encodeURIComponent(s.mode);
+    if (s.mode === 'scheduled') {
+        q += '&remove_after=' + encodeURIComponent(s.remove_after);
+        if (s.show_from) q += '&show_from=' + encodeURIComponent(s.show_from);
+        if (s.auto_archive) q += '&auto_archive=1';
+    }
+    return q;
+}
+
+function scheduleBadgeHtml(img) {
+    if (img.state === 'expired') return '<span class="badge badge-warn">ended ' + escapeHtml(img.remove_after || '') + '</span>';
+    var parts = [];
+    if (img.state === 'scheduled' && img.show_from) parts.push('starts ' + img.show_from);
+    else if (img.remove_after) parts.push('ends ' + img.remove_after);
+    if (img.auto_archive) parts.push('auto-archive');
+    if (!parts.length) return '';
+    return '<span class="badge badge-info">' + escapeHtml(parts.join(' \u00b7 ')) + '</span>';
+}
+
+function openScheduleDialog(title, filename, confirmLabel, onConfirm) {
+    closeScheduleDialog();
+    var ov = document.createElement('div');
+    ov.id = 'sched-dialog';
+    ov.className = 'sched-overlay';
+    ov.innerHTML = '<div class="sched-dialog"><h3>' + escapeHtml(title) + '</h3>' +
+        '<div class="sched-file">' + escapeHtml(filename) + '</div>' +
+        scheduleFieldsHtml('dlg') +
+        '<div class="sched-actions"><button id="dlg-ok">' + escapeHtml(confirmLabel) + '</button>' +
+        '<button onclick="closeScheduleDialog()">Cancel</button></div></div>';
+    document.body.appendChild(ov);
+    document.getElementById('dlg-ok').onclick = function() {
+        var s = readSchedule('dlg');
+        if (!s) return;
+        closeScheduleDialog();
+        onConfirm(s);
+    };
+}
+
+function closeScheduleDialog() {
+    var ov = document.getElementById('sched-dialog');
+    if (ov) ov.remove();
 }
 
 function viewCalendarImage(host, filename) {
@@ -1396,14 +1491,13 @@ function viewCalendarImage(host, filename) {
 
 function uploadCalendarImage(host) {
     var id = safeId(host);
-    var dateInput = document.getElementById('img-upload-date-' + id);
     var fileInput = document.getElementById('img-upload-file-' + id);
     var statusEl = document.getElementById('img-upload-status-' + id);
 
-    var removeDate = dateInput ? dateInput.value : '';
     var file = fileInput && fileInput.files ? fileInput.files[0] : null;
 
-    if (!removeDate) { alert('Choose the date this image should be removed from the calendar.'); return; }
+    var sched = readSchedule('up-' + id);
+    if (!sched) return;
     if (!file) { alert('Choose an image file to upload.'); return; }
 
     var ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
@@ -1414,7 +1508,10 @@ function uploadCalendarImage(host) {
 
     var baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
     if (!baseName) baseName = 'image';
-    var filename = removeDate + ' ' + baseName + ext;
+    // Persistent images get a far-future date so they never expire, even on a calendar without schedules.
+    var datePrefix = sched.mode === 'persistent' ? '2099-12-31' : sched.remove_after;
+    var marker = sched.mode === 'scheduled' && sched.auto_archive ? ' [auto-archive]' : '';
+    var filename = datePrefix + ' ' + baseName + marker + ext;
 
     if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading&hellip;';
 
@@ -1426,7 +1523,14 @@ function uploadCalendarImage(host) {
         fetch('/cgi-bin/upload-calendar-image.cgi?host=' + encodeURIComponent(host), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({filename: filename, data_base64: base64})
+            body: JSON.stringify({
+                filename: filename,
+                data_base64: base64,
+                mode: sched.mode,
+                show_from: sched.show_from || '',
+                remove_after: sched.remove_after || '',
+                auto_archive: !!sched.auto_archive
+            })
         })
             .then(function(r) { return r.json(); })
             .then(function(data) {

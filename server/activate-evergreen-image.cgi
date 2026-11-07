@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # activate-evergreen-image.cgi — Proxies a request to move a calendar image
 # from a client's evergreen reserve pool back into active rotation. Called
-# with ?host=<client_name>&filename=<name>
+# with ?host=<client_name>&filename=<name>&mode=persistent|scheduled
+# [&show_from=D][&remove_after=D][&auto_archive=1]
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -46,9 +47,16 @@ fi
 HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
+# Schedule choices are re-validated by the client; here they are only restricted to safe characters.
+SCHEDULE_QS=""
+for PARAM in mode show_from remove_after auto_archive; do
+    VALUE=$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^${PARAM}=" | cut -d= -f2- | head -1 | tr -cd 'a-z0-9-')
+    [ -z "$VALUE" ] || SCHEDULE_QS="${SCHEDULE_QS}&${PARAM}=${VALUE}"
+done
+
 DATA=$(curl -s --connect-timeout 5 --max-time 20 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/activate-evergreen-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
+    "https://${HOST}:${PORT}/cgi-bin/activate-evergreen-image.cgi?filename=${RAW_FILENAME}${SCHEDULE_QS}" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
     echo '{"error":"activate failed or timed out"}'

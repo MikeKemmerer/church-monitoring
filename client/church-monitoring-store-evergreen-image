@@ -27,6 +27,10 @@ if [[ ! -f "$TARGET" ]]; then
     exit 1
 fi
 
+# Shared with church-calendar's own schedule sweep (see write-calendar-image).
+exec 9>>"$IMAGES_DIR/.image-schedule.lock"
+flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+
 EVERGREEN_DIR="$IMAGES_DIR/evergreen"
 mkdir -p "$EVERGREEN_DIR"
 mv "$TARGET" "$EVERGREEN_DIR/$FILENAME"

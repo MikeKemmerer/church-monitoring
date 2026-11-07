@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # activate-evergreen-image.cgi - Moves a calendar image from the
 # images/evergreen/ reserve pool back into the live images/ folder,
-# putting it back into rotation. Accepts ?filename=X (basename only).
+# putting it back into rotation.
+# Accepts ?filename=X&mode=persistent|scheduled[&show_from=D][&remove_after=D][&auto_archive=1]
+# (basename only). The mode has no default: the operator must choose.
 
 CONFIG="/etc/church-monitoring/client-config.json"
 
@@ -37,12 +39,36 @@ if [ ! -f "$IMAGES_DIR/evergreen/$SAFE_NAME" ]; then
     json_error "evergreen image not found"
 fi
 
+query_param() {
+    url_decode "$(echo "$QUERY_STRING" | tr '&' '\n' | grep "^$1=" | cut -d= -f2- | head -1)"
+}
+MODE=$(query_param mode)
+SHOW_FROM=$(query_param show_from)
+REMOVE_AFTER=$(query_param remove_after)
+AUTO_ARCHIVE=$(query_param auto_archive)
+case "$MODE" in
+    persistent|scheduled) ;;
+    *) json_error "mode must be persistent or scheduled" ;;
+esac
+for DAY in "$SHOW_FROM" "$REMOVE_AFTER"; do
+    if [ -n "$DAY" ] && ! [[ "$DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        json_error "dates must be YYYY-MM-DD"
+    fi
+done
+HELPER_ARGS=(--mode "$MODE")
+if [ "$MODE" = "scheduled" ]; then
+    [ -n "$REMOVE_AFTER" ] || json_error "a scheduled image needs an end date"
+    HELPER_ARGS+=(--remove-after "$REMOVE_AFTER")
+    [ -z "$SHOW_FROM" ] || HELPER_ARGS+=(--show-from "$SHOW_FROM")
+    [ "$AUTO_ARCHIVE" != "1" ] || HELPER_ARGS+=(--auto-archive)
+fi
+
 HELPER="/usr/local/bin/church-monitoring-activate-evergreen-image"
 if [ ! -x "$HELPER" ]; then
     json_error "evergreen activate helper not installed"
 fi
 
-RESULT=$(sudo -u pi "$HELPER" "$IMAGES_DIR" "$SAFE_NAME" 2>&1)
+RESULT=$(sudo -u pi "$HELPER" "$IMAGES_DIR" "$SAFE_NAME" "${HELPER_ARGS[@]}" 2>&1)
 RC=$?
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

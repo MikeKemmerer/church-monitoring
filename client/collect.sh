@@ -779,14 +779,25 @@ if [ -d "$CAL_IMG_DIR" ]; then
     TODAY=$(date +%Y-%m-%d)
     CAL_IMG_TOTAL=0
     CAL_IMG_STALE=0
-    while IFS= read -r f; do
-        CAL_IMG_TOTAL=$((CAL_IMG_TOTAL + 1))
-        BASENAME=$(basename "$f")
-        FILE_DATE=$(echo "$BASENAME" | grep -oP '^\d{4}-\d{2}-\d{2}' || echo "")
-        if [ -n "$FILE_DATE" ] && [[ "$FILE_DATE" < "$TODAY" ]]; then
-            CAL_IMG_STALE=$((CAL_IMG_STALE + 1))
-        fi
-    done < <(find "$CAL_IMG_DIR" -maxdepth 1 -type f 2>/dev/null || true)
+    # Prefer church-calendar's image schedule (read-only); fall back to filename dates.
+    CAL_IMG_SCHED="$(dirname "$CAL_IMG_DIR")/image_schedule.py"
+    CAL_IMG_JSON=""
+    if [ -f "$CAL_IMG_SCHED" ]; then
+        CAL_IMG_JSON=$(python3 "$CAL_IMG_SCHED" --images-dir "$CAL_IMG_DIR" list --read-only 2>/dev/null || echo "")
+    fi
+    if [ -n "$CAL_IMG_JSON" ] && echo "$CAL_IMG_JSON" | jq -e '.images' >/dev/null 2>&1; then
+        CAL_IMG_TOTAL=$(echo "$CAL_IMG_JSON" | jq '.images | length')
+        CAL_IMG_STALE=$(echo "$CAL_IMG_JSON" | jq '[.images[] | select(.state == "expired")] | length')
+    else
+        while IFS= read -r f; do
+            CAL_IMG_TOTAL=$((CAL_IMG_TOTAL + 1))
+            BASENAME=$(basename "$f")
+            FILE_DATE=$(echo "$BASENAME" | grep -oP '^\d{4}-\d{2}-\d{2}' || echo "")
+            if [ -n "$FILE_DATE" ] && [[ "$FILE_DATE" < "$TODAY" ]]; then
+                CAL_IMG_STALE=$((CAL_IMG_STALE + 1))
+            fi
+        done < <(find "$CAL_IMG_DIR" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.webp' \) 2>/dev/null || true)
+    fi
 fi
 
 # --- Service/Process Checks ---

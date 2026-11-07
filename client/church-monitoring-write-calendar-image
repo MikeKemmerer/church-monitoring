@@ -9,10 +9,39 @@
 #
 # Base64 image data is read from stdin.
 # Usage: church-monitoring-write-calendar-image <images_dir> <filename>
+#            [--mode persistent|scheduled] [--show-from YYYY-MM-DD]
+#            [--remove-after YYYY-MM-DD] [--auto-archive]
+# The schedule options are recorded in church-calendar's image schedule; the
+# filename already carries the end date and [auto-archive] marker, so the
+# image keeps its dates even on a calendar that predates the schedule.
 set -euo pipefail
 
 IMAGES_DIR="${1:?images_dir required}"
 FILENAME="${2:?filename required}"
+shift 2
+MODE=""
+SHOW_FROM=""
+REMOVE_AFTER=""
+AUTO_ARCHIVE=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode) MODE="${2:-}"; shift 2 ;;
+        --show-from) SHOW_FROM="${2:-}"; shift 2 ;;
+        --remove-after) REMOVE_AFTER="${2:-}"; shift 2 ;;
+        --auto-archive) AUTO_ARCHIVE=1; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+if [[ -n "$MODE" && "$MODE" != "persistent" && "$MODE" != "scheduled" ]]; then
+    echo "--mode must be persistent or scheduled" >&2
+    exit 1
+fi
+for day in "$SHOW_FROM" "$REMOVE_AFTER"; do
+    if [[ -n "$day" && ! "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "Dates must be YYYY-MM-DD" >&2
+        exit 1
+    fi
+done
 
 # Defense in depth: re-validate even though the CGI already checked.
 if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
@@ -28,6 +57,12 @@ if [[ ! -d "$IMAGES_DIR" ]]; then
     exit 1
 fi
 
+# One lock shared with church-calendar's own schedule sweep, so a file move and its
+# schedule entry change together and the calendar never sees one without the other.
+exec 9>>"$IMAGES_DIR/.image-schedule.lock"
+flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+export IMAGE_SCHEDULE_LOCK_HELD=1
+
 TARGET="$IMAGES_DIR/$FILENAME"
 TMP_FILE=$(mktemp "${IMAGES_DIR}/.upload-XXXXXX")
 
@@ -41,6 +76,22 @@ mv "$TMP_FILE" "$TARGET"
 chmod 644 "$TARGET"
 
 CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+if [[ -n "$MODE" ]]; then
+    SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
+    if [[ ! -f "$SCHEDULER" ]]; then
+        echo "Wrote $TARGET, but church-calendar has no image_schedule.py; upgrade it to apply the start date" >&2
+        exit 1
+    fi
+    ARGS=(--images-dir "$IMAGES_DIR" set "$FILENAME")
+    if [[ "$MODE" == "persistent" ]]; then
+        ARGS+=(--persistent)
+    else
+        [[ -z "$SHOW_FROM" ]] || ARGS+=(--show-from "$SHOW_FROM")
+        [[ -z "$REMOVE_AFTER" ]] || ARGS+=(--remove-after "$REMOVE_AFTER")
+        [[ "$AUTO_ARCHIVE" -eq 0 ]] || ARGS+=(--auto-archive)
+    fi
+    python3 "$SCHEDULER" "${ARGS[@]}" >/dev/null || { echo "Wrote $TARGET, but the schedule could not be applied" >&2; exit 1; }
+fi
 if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
     ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
 fi
