@@ -21,7 +21,17 @@ pre{background:#0f3460;padding:10px;border-radius:6px;overflow-x:auto;font-size:
 </head>
 <body>
 
-<h1>&#128225; Church Monitoring Help &nbsp;<a href="index.html">&larr; Dashboard</a></h1>
+<h1><span id="brandIcon">&#128225;</span> <span id="brandTitle">Church Monitoring</span> Help &nbsp;<a href="index.html">&larr; Dashboard</a></h1>
+<script>
+fetch('/cgi-bin/branding.cgi')
+    .then(function(r) { return r.json(); })
+    .then(function(b) {
+        document.title = b.title + ' \u2014 Help';
+        document.getElementById('brandIcon').textContent = b.icon;
+        document.getElementById('brandTitle').textContent = b.title;
+    })
+    .catch(function() {});
+</script>
 
 <h2>Architecture Overview</h2>
 <p>The monitoring system uses a <b>pull model</b> with two components:</p>

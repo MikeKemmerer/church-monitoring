@@ -224,6 +224,24 @@ Two optional, read-only server-side scripts build on the same
 
 Both require `jq`, `curl`, and `ntfy-notify.sh` at `/usr/local/bin/ntfy-notify.sh`.
 
+### Branding and version footer
+
+The dashboard, login and help pages take their name from an optional `branding`
+section in `/etc/church-monitoring/server-config.json` (see
+`server/config.example.json`); every field falls back to a generic default:
+
+| Field | Default | Used for |
+|---|---|---|
+| `title` | `Church Monitoring` | Page titles and the heading |
+| `icon` | `📡` | Text or emoji beside the heading |
+| `organization` | empty | Shown first in the footer |
+
+`branding.cgi` serves these without a login (the login page needs them) and
+returns nothing but display text. The footer also shows the installed server
+release (e.g. `v1.1.0-rc.8`) from `installed-version.json` via `version.cgi`,
+which does require a login. Changes take effect on the next page load, with no
+restart.
+
 ## Management Commands
 
 Run these on the **server**:
