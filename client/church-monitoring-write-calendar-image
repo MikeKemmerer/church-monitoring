@@ -72,7 +72,7 @@ find_calendar_root() {
     local cfg="${CLIENT_CONFIG:-/etc/church-monitoring/client-config.json}"
     for candidate in \
         "$(jq -r '.calendar_app_path // empty' "$cfg" 2>/dev/null || true)" \
-        "$(systemctl show church-calendar.service -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(systemctl show "${CALENDAR_SERVICE:-church-calendar.service}" -p WorkingDirectory --value 2>/dev/null || true)" \
         "$(dirname "$images_dir")"; do
         if [[ -n "$candidate" && ( -f "$candidate/image_schedule.py" || -f "$candidate/image_optimizer.py" ) ]]; then
             printf '%s' "$candidate"

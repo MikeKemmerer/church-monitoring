@@ -11,6 +11,9 @@ CALENDAR_SRC="${CALENDAR_SRC:-$HERE/../../church-calendar}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+# Never fall through to a calendar installed on this machine: no real client config, no real service.
+export CLIENT_CONFIG="$TMP/client-config.json" CALENDAR_SERVICE=church-monitoring-tests-no-such.service
+echo '{}' > "$CLIENT_CONFIG"
 mkdir -p "$TMP/cal/images"
 cp "$CALENDAR_SRC/image_schedule.py" "$TMP/cal/"
 IMAGES="$TMP/cal/images"

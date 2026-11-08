@@ -784,7 +784,7 @@ if [ -d "$CAL_IMG_DIR" ]; then
     CAL_APP_DIR=""
     for candidate in \
         "$(jq -r '.calendar_app_path // empty' "$CONFIG" 2>/dev/null || true)" \
-        "$(systemctl show church-calendar.service -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(systemctl show "${CALENDAR_SERVICE:-church-calendar.service}" -p WorkingDirectory --value 2>/dev/null || true)" \
         "$(dirname "$CAL_IMG_DIR")"; do
         if [ -n "$candidate" ] && [ -f "$candidate/image_schedule.py" ]; then
             CAL_APP_DIR="$candidate"

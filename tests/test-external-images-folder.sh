@@ -17,6 +17,8 @@ printf 'import pathlib, sys\npathlib.Path(__file__).with_name("optimizer-args").
     > "$TMP/opt/church-calendar/image_optimizer.py"
 IMAGES="$TMP/srv/posters/images"
 export CLIENT_CONFIG="$TMP/client-config.json"
+# Never fall through to a calendar service installed on this machine.
+export CALENDAR_SERVICE=church-monitoring-tests-no-such.service
 printf '{"calendar_images_path":"%s","calendar_app_path":"%s"}' "$IMAGES" "$TMP/opt/church-calendar" > "$CLIENT_CONFIG"
 
 PASS=0

@@ -37,7 +37,7 @@ find_calendar_root() {
     local images_dir="$1" candidate
     for candidate in \
         "$(jq -r '.calendar_app_path // empty' "$CONFIG" 2>/dev/null || true)" \
-        "$(systemctl show church-calendar.service -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(systemctl show "${CALENDAR_SERVICE:-church-calendar.service}" -p WorkingDirectory --value 2>/dev/null || true)" \
         "$(dirname "$images_dir")"; do
         if [ -n "$candidate" ] && [ -f "$candidate/image_schedule.py" ]; then
             printf '%s' "$candidate"
