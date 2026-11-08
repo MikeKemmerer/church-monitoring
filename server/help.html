@@ -94,7 +94,7 @@ fetch('/cgi-bin/branding.cgi')
     <li>On the new client, run the installer with the new token:
         <pre>sudo ./install-client.sh</pre></li>
 </ol>
-<p>Each token is single-use and is automatically deleted after successful enrollment.</p>
+<p>Each token is single-use, expires 24 hours after it is created, and is automatically deleted after successful enrollment.</p>
 
 <h2>Certificate Management</h2>
 <ul>
@@ -144,12 +144,13 @@ fetch('/cgi-bin/branding.cgi')
 <p>The dashboard has its own login screen (<code>login.html</code>) with per-account
     sessions — there are three roles:</p>
 <ul>
-    <li><b>user</b> — read-only: can view status, screenshots, backups, and calendar images</li>
+    <li><b>user</b> — read-only: can view status, screenshots, backup status, and calendar images</li>
     <li><b>contributor</b> — everything a user can do, plus actions: reboot, restart
         services, CEC control, mode-switch, calendar settings, backup creation, and
         calendar image upload/archive/restore</li>
     <li><b>admin</b> — everything a contributor can do, plus managing user accounts:
-        add/remove users, change roles, reset passwords, and lock/unlock accounts</li>
+        add/remove users, change roles, reset passwords, and lock/unlock accounts; and
+        downloading backups, which contain every key, the CA key and password hashes</li>
 </ul>
 <p>Any logged-in user can change their own password from the dashboard header
     (requires knowing the current password). Admins manage accounts from the

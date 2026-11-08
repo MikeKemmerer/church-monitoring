@@ -71,7 +71,23 @@ fi
 
 mv -n "$SOURCE" "$TARGET"
 
-CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+# church-calendar's code folder: client-config "calendar_app_path", else the calendar service's
+# WorkingDirectory, else the parent of the images folder. They differ when images live on a share.
+find_calendar_root() {
+    local images_dir="$1" candidate
+    local cfg="${CLIENT_CONFIG:-/etc/church-monitoring/client-config.json}"
+    for candidate in \
+        "$(jq -r '.calendar_app_path // empty' "$cfg" 2>/dev/null || true)" \
+        "$(systemctl show church-calendar.service -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(dirname "$images_dir")"; do
+        if [[ -n "$candidate" && ( -f "$candidate/image_schedule.py" || -f "$candidate/image_optimizer.py" ) ]]; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    printf '%s' "$(dirname "$images_dir")"
+}
+CALENDAR_ROOT="$(find_calendar_root "$IMAGES_DIR")"
 if [[ -n "$MODE" ]]; then
     SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
     ARGS=(--images-dir "$IMAGES_DIR" set "$FILENAME")

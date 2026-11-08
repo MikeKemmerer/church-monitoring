@@ -495,7 +495,9 @@ function renderMenu(name, data) {
     if (hasRole('contributor')) {
         m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
     }
-    m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
+    if (hasRole('admin')) {
+        m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
+    }
 
     // Restart entries for each monitored systemd service
     var systemd = (data.services || []).filter(function(svc) { return svc.type === 'systemd'; });
@@ -735,12 +737,29 @@ function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// For text placed inside an HTML attribute, including a quoted JS string in an inline handler such as
+// onclick="f('...')". Backslashes are escaped first so a trailing one cannot cancel the closing quote.
 function escapeAttr(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,"\\'");
+    return String(s)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function safeId(s) {
     return String(s).replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+// Thumbnails come from the hosts; only an inline base64 image is ever expected.
+function safeImageDataUrl(s) {
+    return typeof s === 'string' && /^data:image\/(webp|png|jpeg|gif);base64,[A-Za-z0-9+\/]+=*$/.test(s);
 }
 
 function renderCecResult(cached) {
@@ -871,6 +890,7 @@ function fetchDeviceStatus() {
                 var entry = ds[name];
                 var status = (entry && typeof entry === 'object') ? entry.status : entry;
                 var url = (entry && typeof entry === 'object') ? entry.url : '';
+                if (!/^https?:\/\//i.test(url || '')) url = '';
                 var dotClass = status === 'online' ? 'online' : 'offline';
                 var nameHtml = url ?
                     '<a class="card-name" href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' +
@@ -1271,8 +1291,8 @@ function renderImagesPanel(host, data, panel) {
         html += '<div class="img-grid">';
         images.forEach(function(img) {
             html += '<div class="img-tile' + (img.stale ? ' stale' : '') + '">';
-            if (img.thumbnail) {
-                html += '<img src="' + img.thumbnail + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
+            if (safeImageDataUrl(img.thumbnail)) {
+                html += '<img src="' + escapeAttr(img.thumbnail) + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
             } else {
                 html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
             }

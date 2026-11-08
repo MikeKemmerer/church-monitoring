@@ -54,9 +54,11 @@ for PARAM in mode show_from remove_after auto_archive; do
     [ -z "$VALUE" ] || SCHEDULE_QS="${SCHEDULE_QS}&${PARAM}=${VALUE}"
 done
 
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
 DATA=$(curl -s --connect-timeout 5 --max-time 45 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/activate-evergreen-image.cgi?filename=${RAW_FILENAME}${SCHEDULE_QS}" 2>/dev/null) || true
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/activate-evergreen-image.cgi?filename=${RAW_FILENAME}${SCHEDULE_QS}" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
     echo '{"error":"activate failed or timed out"}'

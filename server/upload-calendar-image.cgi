@@ -48,10 +48,12 @@ fi
 TMPFILE=$(mktemp /tmp/church-monitoring-upload-body-XXXXXX)
 head -c "$CONTENT_LENGTH" > "$TMPFILE"
 
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
 DATA=$(curl -s --connect-timeout 5 --max-time 60 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
     -X POST -H "Content-Type: application/json" --data-binary "@$TMPFILE" \
-    "https://${HOST}:${PORT}/cgi-bin/upload-calendar-image.cgi" 2>/dev/null) || true
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/upload-calendar-image.cgi" 2>/dev/null) || true
 
 rm -f "$TMPFILE"
 

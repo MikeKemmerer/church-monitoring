@@ -3,8 +3,9 @@
 # Called by the dashboard with ?host=<client_name>
 # Streams the gzip archive directly to the browser (or returns a JSON error).
 
+# Admin only: the archive holds every key, the CA key and password hashes.
 source /usr/local/lib/church-monitoring/auth-lib.sh
-require_role user
+require_role admin
 
 CONFIG="/etc/church-monitoring/server-config.json"
 CERT="/etc/church-monitoring/ssl/server.crt"
@@ -46,9 +47,10 @@ HEADERS=$(mktemp /tmp/church-monitoring-proxy-backup-hdr-XXXXXX)
 cleanup() { rm -f "$TMPFILE" "$HEADERS"; }
 trap cleanup EXIT
 
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 120 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" \
-    --resolve "${TARGET_CLEAN}:${PORT}:${HOST}" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
     -D "$HEADERS" -o "$TMPFILE" -w "%{http_code}" \
     "https://${TARGET_CLEAN}:${PORT}/cgi-bin/backup-download.cgi" 2>/dev/null) || true
 

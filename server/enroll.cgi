@@ -60,6 +60,11 @@ CLIENT_HOST="$HOST_CLEAN"
 
 CLIENT_PORT="${CLIENT_PORT:-8033}"
 
+TOKEN_TTL_MINUTES=1440
+
+# Expired tokens are removed first, so an old token cannot be used.
+find "$TOKEN_DIR" -maxdepth 1 -type f -mmin +"$TOKEN_TTL_MINUTES" -delete 2>/dev/null || true
+
 # Validate token exists
 if [ ! -f "$TOKEN_DIR/$TOKEN_CLEAN" ]; then
     cgi_error "403 Forbidden" "invalid or expired enrollment token"

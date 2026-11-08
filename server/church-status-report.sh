@@ -23,8 +23,9 @@ while IFS= read -r client; do
     [[ -z "$PORT" ]] && continue
 
     DATA=$(curl -s --connect-timeout 3 --max-time 8 \
-        --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-        "https://${HOST}:${PORT}/cgi-bin/status.cgi" 2>/dev/null) || true
+        --cert "$CERT" --key "$KEY" --cacert "$CA" \
+        --connect-to "${NAME}:${PORT}:${HOST}:${PORT}" \
+        "https://${NAME}:${PORT}/cgi-bin/status.cgi" 2>/dev/null) || true
 
     if [[ -z "$DATA" ]] || ! echo "$DATA" | jq . >/dev/null 2>&1; then
         SUMMARY+=$'\n'"❌ $NAME: unreachable"
