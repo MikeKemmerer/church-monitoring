@@ -29,7 +29,7 @@ fi
 # Shared with church-calendar's own schedule sweep (see write-calendar-image); taken first so
 # the existence check below cannot go stale before the move.
 exec 9>>"$IMAGES_DIR/.image-schedule.lock"
-flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+flock -w 10 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
 
 TARGET="$IMAGES_DIR/$FILENAME"
 if [[ ! -f "$TARGET" ]]; then
@@ -39,7 +39,11 @@ fi
 
 EVERGREEN_DIR="$IMAGES_DIR/evergreen"
 mkdir -p "$EVERGREEN_DIR"
-mv "$TARGET" "$EVERGREEN_DIR/$FILENAME"
+if [[ -e "$EVERGREEN_DIR/$FILENAME" ]]; then
+    echo "An evergreen image named $FILENAME already exists; refusing to overwrite it" >&2
+    exit 1
+fi
+mv -n "$TARGET" "$EVERGREEN_DIR/$FILENAME"
 
 CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
 if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then

@@ -78,6 +78,22 @@ fi
 [[ ! -e "$IMAGES/$FRESH" ]] || check "failed fresh upload leaves nothing behind" none present
 check "no backup folders left behind" 0 "$(find "$IMAGES" -maxdepth 1 -name '.upload-backup-*' | wc -l)"
 
+# Archive and store never overwrite a saved copy, and the live image stays put
+mkdir -p "$IMAGES/evergreen"
+printf 'live' > "$IMAGES/Clash.png"
+printf 'saved' > "$IMAGES/archive/Clash.png"
+printf 'reserve' > "$IMAGES/evergreen/Clash.png"
+if "$CLIENT/church-monitoring-archive-calendar-image" "$IMAGES" "Clash.png" 2>/dev/null; then
+    check "archive refuses to overwrite" refused overwrote
+fi
+check "archive collision keeps the saved copy" saved "$(cat "$IMAGES/archive/Clash.png")"
+check "archive collision keeps the live image" live "$(cat "$IMAGES/Clash.png")"
+if "$CLIENT/church-monitoring-store-evergreen-image" "$IMAGES" "Clash.png" 2>/dev/null; then
+    check "store refuses to overwrite" refused overwrote
+fi
+check "store collision keeps the reserve copy" reserve "$(cat "$IMAGES/evergreen/Clash.png")"
+check "store collision keeps the live image" live "$(cat "$IMAGES/Clash.png")"
+
 # Restore never overwrites a file that appeared in the meantime
 : > "$IMAGES/archive/Dup.png"
 : > "$IMAGES/Dup.png"

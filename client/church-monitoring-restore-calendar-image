@@ -53,7 +53,7 @@ fi
 # schedule entry change together and the calendar never sees one without the other.
 # Taken before the checks below so an upload cannot slip in between check and move.
 exec 9>>"$IMAGES_DIR/.image-schedule.lock"
-flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+flock -w 10 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
 export IMAGE_SCHEDULE_LOCK_HELD=1
 
 ARCHIVE_DIR="$IMAGES_DIR/archive"

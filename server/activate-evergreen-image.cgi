@@ -54,7 +54,7 @@ for PARAM in mode show_from remove_after auto_archive; do
     [ -z "$VALUE" ] || SCHEDULE_QS="${SCHEDULE_QS}&${PARAM}=${VALUE}"
 done
 
-DATA=$(curl -s --connect-timeout 5 --max-time 20 \
+DATA=$(curl -s --connect-timeout 5 --max-time 45 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
     "https://${HOST}:${PORT}/cgi-bin/activate-evergreen-image.cgi?filename=${RAW_FILENAME}${SCHEDULE_QS}" 2>/dev/null) || true
 
