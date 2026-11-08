@@ -78,21 +78,29 @@ fi
 [[ ! -e "$IMAGES/$FRESH" ]] || check "failed fresh upload leaves nothing behind" none present
 check "no backup folders left behind" 0 "$(find "$IMAGES" -maxdepth 1 -name '.upload-backup-*' | wc -l)"
 
-# Archive and store never overwrite a saved copy, and the live image stays put
+# A name already archived or stored gets _1, _2 ... (before any [auto-archive] marker); nothing is overwritten
 mkdir -p "$IMAGES/evergreen"
-printf 'live' > "$IMAGES/Clash.png"
+ARCHIVE="$CLIENT/church-monitoring-archive-calendar-image"
+STORE="$CLIENT/church-monitoring-store-evergreen-image"
 printf 'saved' > "$IMAGES/archive/Clash.png"
+printf 'second' > "$IMAGES/Clash.png"
+"$ARCHIVE" "$IMAGES" "Clash.png" >/dev/null
+check "first archived copy kept" saved "$(cat "$IMAGES/archive/Clash.png")"
+check "colliding archive is numbered _1" second "$(cat "$IMAGES/archive/Clash_1.png")"
+[[ ! -e "$IMAGES/Clash.png" ]] || check "archived image left the live folder" gone present
+printf 'third' > "$IMAGES/Clash.png"
+"$ARCHIVE" "$IMAGES" "Clash.png" >/dev/null
+check "next collision is numbered _2" third "$(cat "$IMAGES/archive/Clash_2.png")"
+MARKED="2026-12-20 Sale [auto-archive].png"
+printf 'old-marked' > "$IMAGES/archive/$MARKED"
+printf 'new-marked' > "$IMAGES/$MARKED"
+"$ARCHIVE" "$IMAGES" "$MARKED" >/dev/null
+check "number goes before the [auto-archive] marker" new-marked "$(cat "$IMAGES/archive/2026-12-20 Sale_1 [auto-archive].png")"
 printf 'reserve' > "$IMAGES/evergreen/Clash.png"
-if "$CLIENT/church-monitoring-archive-calendar-image" "$IMAGES" "Clash.png" 2>/dev/null; then
-    check "archive refuses to overwrite" refused overwrote
-fi
-check "archive collision keeps the saved copy" saved "$(cat "$IMAGES/archive/Clash.png")"
-check "archive collision keeps the live image" live "$(cat "$IMAGES/Clash.png")"
-if "$CLIENT/church-monitoring-store-evergreen-image" "$IMAGES" "Clash.png" 2>/dev/null; then
-    check "store refuses to overwrite" refused overwrote
-fi
-check "store collision keeps the reserve copy" reserve "$(cat "$IMAGES/evergreen/Clash.png")"
-check "store collision keeps the live image" live "$(cat "$IMAGES/Clash.png")"
+printf 'live' > "$IMAGES/Clash.png"
+"$STORE" "$IMAGES" "Clash.png" >/dev/null
+check "first evergreen copy kept" reserve "$(cat "$IMAGES/evergreen/Clash.png")"
+check "colliding store is numbered _1" live "$(cat "$IMAGES/evergreen/Clash_1.png")"
 
 # Restore never overwrites a file that appeared in the meantime
 : > "$IMAGES/archive/Dup.png"

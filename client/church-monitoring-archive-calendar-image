@@ -36,17 +36,36 @@ if [[ ! -f "$TARGET" ]]; then
     exit 1
 fi
 
+# A name already in the archive gets _1, _2 ... before any ' [auto-archive]' marker and the extension.
+unique_destination() {
+    local dir="$1" name="$2" stem ext="" marker="" n=1
+    if [[ ! -e "$dir/$name" ]]; then
+        printf '%s' "$dir/$name"
+        return
+    fi
+    stem="$name"
+    if [[ "$name" == *.* ]]; then
+        ext=".${name##*.}"
+        stem="${name%.*}"
+    fi
+    if [[ "${stem,,}" == *" [auto-archive]" ]]; then
+        marker="${stem: -15}"
+        stem="${stem:0:${#stem}-15}"
+    fi
+    while [[ -e "$dir/${stem}_${n}${marker}${ext}" ]]; do
+        n=$((n + 1))
+    done
+    printf '%s' "$dir/${stem}_${n}${marker}${ext}"
+}
+
 ARCHIVE_DIR="$IMAGES_DIR/archive"
 mkdir -p "$ARCHIVE_DIR"
-if [[ -e "$ARCHIVE_DIR/$FILENAME" ]]; then
-    echo "An archived image named $FILENAME already exists; refusing to overwrite it" >&2
-    exit 1
-fi
-mv -n "$TARGET" "$ARCHIVE_DIR/$FILENAME"
+DESTINATION="$(unique_destination "$ARCHIVE_DIR" "$FILENAME")"
+mv -n "$TARGET" "$DESTINATION"
 
 CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
 if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
     ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
 fi
 
-echo "Archived $TARGET -> $ARCHIVE_DIR/$FILENAME"
+echo "Archived $TARGET -> $DESTINATION"
