@@ -613,13 +613,13 @@ install_display_hooks() {
     local strategy kiosk_user kiosk_home hook action
 
     strategy=$(jq -r '.display_control.strategy // empty' "$CONF_DIR/client-config.json" 2>/dev/null || echo "")
-    [[ "$strategy" == "hdmi_signal" ]] || return
+    [[ "$strategy" == "hdmi_signal" ]] || return 0
 
     kiosk_user=$(systemctl show videokiosk2.service -p User --value 2>/dev/null || echo "")
     kiosk_home=$(getent passwd "$kiosk_user" | cut -d: -f6)
     if [[ -z "$kiosk_home" || ! -d "$kiosk_home" ]]; then
         echo "  HDMI display hooks skipped: kiosk user could not be determined."
-        return
+        return 0
     fi
 
     for action in on off; do
