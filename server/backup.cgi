@@ -42,9 +42,10 @@ HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
 # Backups can take a little while (copying configs + tar); allow a longer budget.
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
 DATA=$(curl -s --connect-timeout 5 --max-time 120 \
     --cert "$CERT" --key "$KEY" --cacert "$CA" \
-    --resolve "${TARGET_CLEAN}:${PORT}:${HOST}" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
     "https://${TARGET_CLEAN}:${PORT}/cgi-bin/backup.cgi" 2>/dev/null) || true
 
 if [ -z "$DATA" ]; then

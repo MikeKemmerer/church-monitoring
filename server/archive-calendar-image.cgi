@@ -46,9 +46,11 @@ fi
 HOST=$(echo "$CLIENT" | jq -r '.host')
 PORT=$(echo "$CLIENT" | jq -r '.port')
 
-DATA=$(curl -s --connect-timeout 5 --max-time 20 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-    "https://${HOST}:${PORT}/cgi-bin/archive-calendar-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
+DATA=$(curl -s --connect-timeout 5 --max-time 45 \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/archive-calendar-image.cgi?filename=${RAW_FILENAME}" 2>/dev/null) || true
 
 if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
     echo '{"error":"archive failed or timed out"}'

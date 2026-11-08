@@ -60,8 +60,9 @@ while IFS= read -r client; do
 
     (
         DATA=$(curl -s --connect-timeout 3 --max-time 8 \
-            --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
-            "https://${HOST}:${PORT}/cgi-bin/status.cgi${REFRESH_PARAM}" 2>/dev/null) || true
+            --cert "$CERT" --key "$KEY" --cacert "$CA" \
+            --connect-to "${NAME}:${PORT}:${HOST}:${PORT}" \
+            "https://${NAME}:${PORT}/cgi-bin/status.cgi${REFRESH_PARAM}" 2>/dev/null) || true
 
         if [ -z "$DATA" ] || ! echo "$DATA" | jq . &>/dev/null; then
             DATA=$(jq -n --arg name "$NAME" '{"error":"unreachable","hostname":$name}')

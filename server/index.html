@@ -70,6 +70,7 @@ button:disabled{opacity:0.5;cursor:default}
 .menu-sub.open{display:block}
 .badge{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:3px;font-weight:600;vertical-align:middle}
 .badge-warn{background:#f39c12;color:#000}
+.badge-info{background:#1a4a7a;color:#e8f4fd}
 .badge-err{background:#c0392b;color:#fff}
 .cal-info{font-size:11px;color:#7f8c8d;margin-bottom:4px}
 .cal-info-warn{font-size:11px;color:#f39c12;margin-bottom:4px}
@@ -88,6 +89,17 @@ button:disabled{opacity:0.5;cursor:default}
 .img-tile img{width:100%;height:60px;object-fit:cover;border-radius:4px;cursor:pointer}
 .img-noThumb{width:100%;height:60px;display:flex;align-items:center;justify-content:center;font-size:24px;background:#0a1a35;border-radius:4px}
 .img-name{font-size:9px;color:#a0a0c0;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sched-fields{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;font-size:11px;color:#ccc}
+.sched-mode{display:flex;gap:10px;align-items:center;padding-bottom:4px}
+.sched-mode label,.sched-check{display:flex;flex-direction:row;align-items:center;gap:4px}
+.sched-dates{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.sched-dates label{display:flex;flex-direction:column;gap:2px}
+.sched-dates .sched-check{flex-direction:row;padding-bottom:4px}
+.sched-dialog::backdrop{background:rgba(0,0,0,.6)}
+.sched-dialog{background:#16213e;color:#e8f4fd;border:1px solid #1a4a7a;border-radius:8px;padding:16px;max-width:420px;width:90%}
+.sched-dialog h3{margin:0 0 6px;font-size:14px}
+.sched-file{font-size:11px;color:#a0a0c0;margin-bottom:10px;word-break:break-all}
+.sched-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .stale{font-size:11px;color:#7f8c8d;display:block;margin-top:6px}
 .cec-result{font-size:12px;margin-top:6px;padding:6px;background:#0f3460;border-radius:4px;display:none}
 .spinner{display:inline-block;width:12px;height:12px;border:2px solid #7f8c8d;border-top-color:#7eb8da;border-radius:50%;animation:spin .6s linear infinite}
@@ -108,6 +120,7 @@ button:disabled{opacity:0.5;cursor:default}
 .dev-card a.card-name:hover{text-decoration:underline}
 .ext-icon{font-size:11px;opacity:.7}
 .user-bar{display:flex;align-items:center;gap:10px;font-size:12px;color:#a0a0c0;margin-left:auto}
+.site-footer{margin-top:24px;padding-top:10px;border-top:1px solid #0f3460;font-size:11px;color:#7f8c8d;text-align:center}
 .user-bar .role-badge{background:#0f3460;border-radius:4px;padding:2px 7px;font-size:11px;text-transform:capitalize}
 .user-bar a, .user-bar button.link-btn{color:#7eb8da;text-decoration:none;background:none;border:none;padding:0;font-size:12px;cursor:pointer}
 .user-bar a:hover, .user-bar button.link-btn:hover{text-decoration:underline}
@@ -136,7 +149,7 @@ button{padding:4px 8px;font-size:11px}
 </head>
 <body>
 
-<h1>&#128225; Church Monitoring <span class="user-bar" id="userBar"></span> <a href="help.html">Help</a></h1>
+<h1><span id="brandIcon">&#128225;</span><span id="brandTitle">Church Monitoring</span> <span class="user-bar" id="userBar"></span> <a href="help.html">Help</a></h1>
 
 <div class="auth-panel" id="changePasswordPanel">
     <div class="auth-panel-inner">
@@ -177,7 +190,41 @@ button{padding:4px 8px;font-size:11px}
     <div class="dev-cards" id="devCards"></div>
 </div>
 
+<footer class="site-footer" id="siteFooter"></footer>
+
 <script>
+var BRANDING = {title: 'Church Monitoring', icon: '\u{1F4E1}', organization: ''};
+var INSTALLED_VERSION = null;
+
+function renderFooter() {
+    var parts = [];
+    if (BRANDING.organization) parts.push(BRANDING.organization);
+    var product = BRANDING.title;
+    var server = INSTALLED_VERSION && INSTALLED_VERSION.server;
+    if (server) product += ' ' + (server.tag || ('v' + server.version));
+    parts.push(product);
+    document.getElementById('siteFooter').textContent = parts.join(' \u00b7 ');
+}
+
+function applyBranding() {
+    return fetch('/cgi-bin/branding.cgi', {credentials: 'same-origin'})
+        .then(function(r) { return r.json(); })
+        .then(function(b) {
+            BRANDING = b;
+            document.title = b.title;
+            document.getElementById('brandIcon').textContent = b.icon;
+            document.getElementById('brandTitle').textContent = b.title;
+            renderFooter();
+        })
+        .catch(function() {});
+}
+
+function loadVersion() {
+    return fetch('/cgi-bin/version.cgi', {credentials: 'same-origin'})
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(v) { INSTALLED_VERSION = v; renderFooter(); })
+        .catch(function() {});
+}
 var autoTimer = null;
 var cecCache = {};  // Persistent CEC results keyed by client name
 var cecTimerInterval = null;
@@ -448,7 +495,9 @@ function renderMenu(name, data) {
     if (hasRole('contributor')) {
         m += '<button class="menu-item" onclick="backup(\'' + n + '\')">&#128190; Create backup</button>';
     }
-    m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
+    if (hasRole('admin')) {
+        m += '<button class="menu-item" onclick="downloadBackup(\'' + n + '\')">&#11015; Download latest backup</button>';
+    }
 
     // Restart entries for each monitored systemd service
     var systemd = (data.services || []).filter(function(svc) { return svc.type === 'systemd'; });
@@ -516,7 +565,7 @@ function renderCard(data) {
     html += '<div class="card-body">';
 
     // Screenshot area (above stats, shown when captured)
-    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+    html += '<div class="screenshot-area" id="screen-' + escapeHtml(name) + '"></div>';
 
     // Stats
     html += '<div class="card-stats">';
@@ -668,7 +717,7 @@ function renderCard(data) {
         var cached = cecCache[name];
         var cecDisplay = cached ? 'display:block' : 'display:none';
         var cecContent = cached ? renderCecResult(cached) : '';
-        html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
+        html += '<div class="cec-result" id="cec-' + escapeHtml(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
     }
 
     // Calendar images management panel (populated on demand)
@@ -688,12 +737,29 @@ function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Only for a quoted JS string in an inline handler such as onclick="f('...')"; plain attributes use escapeHtml.
+// Backslashes are escaped first so a trailing one cannot cancel the closing quote.
 function escapeAttr(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,"\\'");
+    return String(s)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function safeId(s) {
     return String(s).replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+// Thumbnails come from the hosts; only an inline base64 image is ever expected.
+function safeImageDataUrl(s) {
+    return typeof s === 'string' && /^data:image\/(webp|png|jpeg|gif);base64,[A-Za-z0-9+\/]+=*$/.test(s);
 }
 
 function renderCecResult(cached) {
@@ -824,14 +890,15 @@ function fetchDeviceStatus() {
                 var entry = ds[name];
                 var status = (entry && typeof entry === 'object') ? entry.status : entry;
                 var url = (entry && typeof entry === 'object') ? entry.url : '';
+                if (!/^https?:\/\//i.test(url || '')) url = '';
                 var dotClass = status === 'online' ? 'online' : 'offline';
                 var nameHtml = url ?
-                    '<a class="card-name" href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' +
+                    '<a class="card-name" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' +
                         escapeHtml(name) + ' <span class="ext-icon">&#8599;</span></a>' :
                     '<span class="card-name">' + escapeHtml(name) + '</span>';
                 html += '<div class="dev-card">' +
                     nameHtml +
-                    '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeAttr(name) + '"></span>' +
+                    '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeHtml(name) + '"></span>' +
                     '<button style="margin-left:6px;padding:2px 6px;font-size:11px" onclick="refreshDevice(\'' + escapeAttr(name) + '\')">' +
                     '&#x21bb;</button></span></div>';
             });
@@ -1085,6 +1152,7 @@ function toggleCalendarPanel(host, btn, browserType, currentScale) {
             '<option value="1">Large</option>' +
             '<option value="0">Normal</option>' +
         '</select></label>' +
+        '<label>Days shown<input type="number" id="cal-days-' + safeId + '" min="1" max="999" step="1" placeholder="No change" title="The calendar limits this to its own maximum"></label>' +
         (browserType === 'falkon' ?
             '<label>Scale<select id="browser-scale-' + safeId + '">' +
                 '<option value="1">100%</option>' +
@@ -1110,11 +1178,16 @@ function applyCalendarSettings(host, currentScale) {
     var font = document.getElementById('cal-font-' + safeId).value;
     var speed = document.getElementById('cal-speed-' + safeId).value;
     var margins = document.getElementById('cal-margins-' + safeId).value;
+    var days = document.getElementById('cal-days-' + safeId).value.trim();
     var scaleInput = document.getElementById('browser-scale-' + safeId);
     var scale = scaleInput ? scaleInput.value : '';
     var scaleChanged = scale && scale !== (currentScale || '1');
 
-    if (!theme && !font && !speed && !margins && !scaleChanged) {
+    if (days && !/^[1-9][0-9]{0,2}$/.test(days)) {
+        alert('Days shown must be a whole number from 1 to 999.');
+        return;
+    }
+    if (!theme && !font && !speed && !margins && !days && !scaleChanged) {
         alert('Select at least one setting to change.');
         return;
     }
@@ -1123,6 +1196,7 @@ function applyCalendarSettings(host, currentScale) {
     if (font) params += '&font=' + encodeURIComponent(font);
     if (speed) params += '&speed=' + encodeURIComponent(speed);
     if (margins) params += '&margins=' + encodeURIComponent(margins);
+    if (days) params += '&days=' + encodeURIComponent(days);
 
     var panelId = 'calendar-panel-' + safeId;
     var panel = document.getElementById(panelId);
@@ -1130,7 +1204,7 @@ function applyCalendarSettings(host, currentScale) {
 
     var results = [];
     var request = Promise.resolve();
-    if (theme || font || speed || margins) {
+    if (theme || font || speed || margins || days) {
         request = request.then(function() {
             return fetchJson('/cgi-bin/host-action.cgi?' + params);
         }).then(function(data) {
@@ -1200,7 +1274,7 @@ function renderImagesPanel(host, data, panel) {
     var html = '';
     if (hasRole('contributor')) {
         html += '<div class="images-upload">';
-        html += '<label>Remove after date<input type="date" id="img-upload-date-' + id + '"></label>';
+        html += scheduleFieldsHtml('up-' + id);
         html += '<label>&nbsp;<input type="file" id="img-upload-file-' + id + '" accept="image/*"></label>';
         html += '<button onclick="uploadCalendarImage(\'' + escapeAttr(host) + '\')">&#11014; Upload</button>';
         html += '</div>';
@@ -1217,13 +1291,14 @@ function renderImagesPanel(host, data, panel) {
         html += '<div class="img-grid">';
         images.forEach(function(img) {
             html += '<div class="img-tile' + (img.stale ? ' stale' : '') + '">';
-            if (img.thumbnail) {
-                html += '<img src="' + img.thumbnail + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
+            if (safeImageDataUrl(img.thumbnail)) {
+                html += '<img src="' + escapeHtml(img.thumbnail) + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
             } else {
                 html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
             }
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
-            if (img.stale) html += '<span class="badge badge-warn">stale</span>';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            if (img.state) html += scheduleBadgeHtml(img);
+            else if (img.stale) html += '<span class="badge badge-warn">stale</span>';
             if (hasRole('contributor')) {
                 html += '<div style="display:flex;gap:3px;justify-content:center;margin-top:3px">';
                 html += '<button class="btn-danger" style="font-size:10px;padding:2px 5px" onclick="archiveCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Archive</button>';
@@ -1284,8 +1359,8 @@ function renderArchivePanel(host, data, panel) {
         images.forEach(function(img) {
             var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&archived=1';
             html += '<div class="img-tile">';
-            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            html += '<img src="' + escapeHtml(imgUrl) + '" alt="" onclick="window.open(\'' + escapeAttr(imgUrl) + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (hasRole('contributor')) {
                 html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="restoreCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Restore</button></div>';
             }
@@ -1297,17 +1372,19 @@ function renderArchivePanel(host, data, panel) {
 }
 
 function restoreCalendarImageUI(host, filename) {
-    fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
-        .then(function(data) {
-            if (data.error || data.result === 'failed') {
-                alert('Restore failed: ' + (data.error || 'unknown error'));
-                return;
-            }
-            loadArchivePanel(host);
-            loadImagesPanel(host);
-            setTimeout(function() { refreshOne(host); }, 1000);
-        })
-        .catch(function(err) { alert('Restore failed: ' + err); });
+    openScheduleDialog('Restore image', filename, 'Restore', function(sched) {
+        fetchJson('/cgi-bin/restore-calendar-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename) + scheduleQuery(sched))
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    alert('Restore failed: ' + (data.error || 'unknown error'));
+                    return;
+                }
+                loadArchivePanel(host);
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) { alert('Restore failed: ' + err); });
+    });
 }
 
 function toggleEvergreenPanel(host) {
@@ -1349,8 +1426,8 @@ function renderEvergreenPanel(host, data, panel) {
         images.forEach(function(img) {
             var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&evergreen=1';
             html += '<div class="img-tile">';
-            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            html += '<img src="' + escapeHtml(imgUrl) + '" alt="" onclick="window.open(\'' + escapeAttr(imgUrl) + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (hasRole('contributor')) {
                 html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="activateEvergreenImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Activate</button></div>';
             }
@@ -1376,17 +1453,107 @@ function storeEvergreenImageUI(host, filename) {
 }
 
 function activateEvergreenImageUI(host, filename) {
-    fetchJson('/cgi-bin/activate-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename))
-        .then(function(data) {
-            if (data.error || data.result === 'failed') {
-                alert('Activate failed: ' + (data.error || 'unknown error'));
-                return;
-            }
-            loadEvergreenPanel(host);
-            loadImagesPanel(host);
-            setTimeout(function() { refreshOne(host); }, 1000);
-        })
-        .catch(function(err) { alert('Activate failed: ' + err); });
+    openScheduleDialog('Activate evergreen image', filename, 'Activate', function(sched) {
+        fetchJson('/cgi-bin/activate-evergreen-image.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(filename) + scheduleQuery(sched))
+            .then(function(data) {
+                if (data.error || data.result === 'failed') {
+                    alert('Activate failed: ' + (data.error || 'unknown error'));
+                    return;
+                }
+                loadEvergreenPanel(host);
+                loadImagesPanel(host);
+                setTimeout(function() { refreshOne(host); }, 1000);
+            })
+            .catch(function(err) { alert('Activate failed: ' + err); });
+    });
+}
+
+// ---- Display schedule chooser (shared by upload, restore and evergreen activation) ----
+// No default: the operator must pick Persistent or Scheduled.
+function scheduleFieldsHtml(prefix) {
+    var h = '<div class="sched-fields">';
+    h += '<div class="sched-mode">';
+    h += '<label><input type="radio" name="' + prefix + '-mode" value="persistent" onchange="scheduleModeChanged(\'' + prefix + '\')"> Persistent</label>';
+    h += '<label><input type="radio" name="' + prefix + '-mode" value="scheduled" onchange="scheduleModeChanged(\'' + prefix + '\')"> Scheduled</label>';
+    h += '</div>';
+    h += '<div class="sched-dates" id="' + prefix + '-dates" style="display:none">';
+    h += '<label>Show from (optional)<input type="date" id="' + prefix + '-from"></label>';
+    h += '<label>Last day shown<input type="date" id="' + prefix + '-to"></label>';
+    h += '<label class="sched-check"><input type="checkbox" id="' + prefix + '-auto"> Auto-archive after last day</label>';
+    h += '</div></div>';
+    return h;
+}
+
+function scheduleModeChanged(prefix) {
+    var sel = document.querySelector('input[name="' + prefix + '-mode"]:checked');
+    var dates = document.getElementById(prefix + '-dates');
+    if (dates) dates.style.display = sel && sel.value === 'scheduled' ? 'flex' : 'none';
+}
+
+// Returns {mode, show_from, remove_after, auto_archive} or null (after alerting) if incomplete.
+function readSchedule(prefix) {
+    var sel = document.querySelector('input[name="' + prefix + '-mode"]:checked');
+    if (!sel) { alert('Choose Persistent or Scheduled.'); return null; }
+    if (sel.value === 'persistent') return {mode: 'persistent'};
+    var from = document.getElementById(prefix + '-from').value;
+    var to = document.getElementById(prefix + '-to').value;
+    if (!to) { alert('Choose the last day this image should be shown.'); return null; }
+    if (from && to < from) { alert('The last day cannot be before the start date.'); return null; }
+    return {mode: 'scheduled', show_from: from, remove_after: to, auto_archive: document.getElementById(prefix + '-auto').checked};
+}
+
+function scheduleQuery(s) {
+    var q = '&mode=' + encodeURIComponent(s.mode);
+    if (s.mode === 'scheduled') {
+        q += '&remove_after=' + encodeURIComponent(s.remove_after);
+        if (s.show_from) q += '&show_from=' + encodeURIComponent(s.show_from);
+        if (s.auto_archive) q += '&auto_archive=1';
+    }
+    return q;
+}
+
+function scheduleBadgeHtml(img) {
+    if (img.state === 'expired') return '<span class="badge badge-warn">ended ' + escapeHtml(img.remove_after || '') + '</span>';
+    var parts = [];
+    if (img.state === 'scheduled' && img.show_from) parts.push('starts ' + img.show_from);
+    else if (img.remove_after) parts.push('ends ' + img.remove_after);
+    if (img.auto_archive) parts.push('auto-archive');
+    if (!parts.length) return '';
+    return '<span class="badge badge-info">' + escapeHtml(parts.join(' \u00b7 ')) + '</span>';
+}
+
+function openScheduleDialog(title, filename, confirmLabel, onConfirm) {
+    closeScheduleDialog();
+    var opener = document.activeElement;
+    var dlg = document.createElement('dialog');
+    dlg.id = 'sched-dialog';
+    dlg.className = 'sched-dialog';
+    dlg.setAttribute('aria-labelledby', 'sched-dialog-title');
+    dlg.innerHTML = '<h3 id="sched-dialog-title">' + escapeHtml(title) + '</h3>' +
+        '<div class="sched-file">' + escapeHtml(filename) + '</div>' +
+        scheduleFieldsHtml('dlg') +
+        '<div class="sched-actions"><button type="button" id="dlg-ok">' + escapeHtml(confirmLabel) + '</button>' +
+        '<button type="button" id="dlg-cancel">Cancel</button></div>';
+    dlg.addEventListener('close', function() {
+        dlg.remove();
+        if (opener && opener.isConnected && opener.focus) opener.focus();
+    });
+    document.body.appendChild(dlg);
+    document.getElementById('dlg-cancel').onclick = function() { dlg.close(); };
+    document.getElementById('dlg-ok').onclick = function() {
+        var s = readSchedule('dlg');
+        if (!s) return;
+        dlg.close();
+        onConfirm(s);
+    };
+    dlg.showModal();
+}
+
+function closeScheduleDialog() {
+    var dlg = document.getElementById('sched-dialog');
+    if (!dlg) return;
+    if (dlg.close) dlg.close();
+    dlg.remove();
 }
 
 function viewCalendarImage(host, filename) {
@@ -1396,14 +1563,13 @@ function viewCalendarImage(host, filename) {
 
 function uploadCalendarImage(host) {
     var id = safeId(host);
-    var dateInput = document.getElementById('img-upload-date-' + id);
     var fileInput = document.getElementById('img-upload-file-' + id);
     var statusEl = document.getElementById('img-upload-status-' + id);
 
-    var removeDate = dateInput ? dateInput.value : '';
     var file = fileInput && fileInput.files ? fileInput.files[0] : null;
 
-    if (!removeDate) { alert('Choose the date this image should be removed from the calendar.'); return; }
+    var sched = readSchedule('up-' + id);
+    if (!sched) return;
     if (!file) { alert('Choose an image file to upload.'); return; }
 
     var ext = (file.name.match(/\.[^.]+$/) || [''])[0].toLowerCase();
@@ -1414,7 +1580,10 @@ function uploadCalendarImage(host) {
 
     var baseName = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9 _-]/g, '').trim();
     if (!baseName) baseName = 'image';
-    var filename = removeDate + ' ' + baseName + ext;
+    // Persistent images get a far-future date so they never expire, even on a calendar without schedules.
+    var datePrefix = sched.mode === 'persistent' ? '2099-12-31' : sched.remove_after;
+    var marker = sched.mode === 'scheduled' && sched.auto_archive ? ' [auto-archive]' : '';
+    var filename = datePrefix + ' ' + baseName + marker + ext;
 
     if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Uploading&hellip;';
 
@@ -1426,7 +1595,14 @@ function uploadCalendarImage(host) {
         fetch('/cgi-bin/upload-calendar-image.cgi?host=' + encodeURIComponent(host), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({filename: filename, data_base64: base64})
+            body: JSON.stringify({
+                filename: filename,
+                data_base64: base64,
+                mode: sched.mode,
+                show_from: sched.show_from || '',
+                remove_after: sched.remove_after || '',
+                auto_archive: !!sched.auto_archive
+            })
         })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -1513,7 +1689,9 @@ function fetchJson(url) {
 
 // Initial fetch — gated behind a valid login session; checkAuth() redirects
 // to login.html if the whoami.cgi check comes back 401.
+applyBranding();
 checkAuth().then(function() {
+    loadVersion();
     fetchAll();
     cecTimerInterval = setInterval(updateCecTimers, 1000);
     setInterval(updateStandbyTimers, 1000);

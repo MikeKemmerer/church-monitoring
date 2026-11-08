@@ -58,7 +58,18 @@ if [ "$HOST_CLEAN" != "$CLIENT_HOST" ] || [ -z "$HOST_CLEAN" ]; then
 fi
 CLIENT_HOST="$HOST_CLEAN"
 
+# Clients trust the dashboard by this certificate name, so no enrolling host may take it.
+case "${CLIENT_HOST,,}" in
+    church-monitoring-server|church-monitoring-ca)
+        cgi_error "400 Bad Request" "hostname is reserved" ;;
+esac
+
 CLIENT_PORT="${CLIENT_PORT:-8033}"
+
+TOKEN_TTL_MINUTES=1440
+
+# Expired tokens are removed first, so an old token cannot be used.
+find "$TOKEN_DIR" -maxdepth 1 -type f -mmin +"$TOKEN_TTL_MINUTES" -delete 2>/dev/null || true
 
 # Validate token exists
 if [ ! -f "$TOKEN_DIR/$TOKEN_CLEAN" ]; then
@@ -73,6 +84,12 @@ cat > "$TMPDIR/client.csr"
 # Validate CSR format
 if ! openssl req -noout -verify -in "$TMPDIR/client.csr" 2>/dev/null; then
     cgi_error "400 Bad Request" "invalid CSR format"
+fi
+
+# The signed name must be exactly the enrolling host; x509 -req copies the CSR subject as-is.
+SUBJECT=$(openssl req -noout -subject -nameopt RFC2253 -in "$TMPDIR/client.csr" 2>/dev/null | sed 's/^subject= *//')
+if [ "$SUBJECT" != "CN=$CLIENT_HOST" ]; then
+    cgi_error "400 Bad Request" "CSR subject must be CN=$CLIENT_HOST"
 fi
 
 # Sign the CSR

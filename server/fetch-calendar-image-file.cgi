@@ -44,10 +44,12 @@ PORT=$(echo "$CLIENT" | jq -r '.port')
 
 TMPFILE=$(mktemp /tmp/church-monitoring-proxy-calimg-XXXXXX)
 
+# The client's certificate is checked against its configured name; HOST may be an address or alias.
 HTTP_CODE=$(curl -s --connect-timeout 5 --max-time 15 \
-    --cert "$CERT" --key "$KEY" --cacert "$CA" -k \
+    --cert "$CERT" --key "$KEY" --cacert "$CA" \
+    --connect-to "${TARGET_CLEAN}:${PORT}:${HOST}:${PORT}" \
     -o "$TMPFILE" -w "%{http_code}" \
-    "https://${HOST}:${PORT}/cgi-bin/fetch-calendar-image.cgi?filename=${RAW_FILENAME}${ARCHIVED_QS}${EVERGREEN_QS}" 2>/dev/null) || true
+    "https://${TARGET_CLEAN}:${PORT}/cgi-bin/fetch-calendar-image.cgi?filename=${RAW_FILENAME}${ARCHIVED_QS}${EVERGREEN_QS}" 2>/dev/null) || true
 
 if [ "$HTTP_CODE" != "200" ] || [ ! -s "$TMPFILE" ]; then
     rm -f "$TMPFILE"

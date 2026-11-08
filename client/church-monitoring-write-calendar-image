@@ -9,10 +9,39 @@
 #
 # Base64 image data is read from stdin.
 # Usage: church-monitoring-write-calendar-image <images_dir> <filename>
+#            [--mode persistent|scheduled] [--show-from YYYY-MM-DD]
+#            [--remove-after YYYY-MM-DD] [--auto-archive]
+# The schedule options are recorded in church-calendar's image schedule; the
+# filename already carries the end date and [auto-archive] marker, so the
+# image keeps its dates even on a calendar that predates the schedule.
 set -euo pipefail
 
 IMAGES_DIR="${1:?images_dir required}"
 FILENAME="${2:?filename required}"
+shift 2
+MODE=""
+SHOW_FROM=""
+REMOVE_AFTER=""
+AUTO_ARCHIVE=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode) MODE="${2:-}"; shift 2 ;;
+        --show-from) SHOW_FROM="${2:-}"; shift 2 ;;
+        --remove-after) REMOVE_AFTER="${2:-}"; shift 2 ;;
+        --auto-archive) AUTO_ARCHIVE=1; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+if [[ -n "$MODE" && "$MODE" != "persistent" && "$MODE" != "scheduled" ]]; then
+    echo "--mode must be persistent or scheduled" >&2
+    exit 1
+fi
+for day in "$SHOW_FROM" "$REMOVE_AFTER"; do
+    if [[ -n "$day" && ! "$day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "Dates must be YYYY-MM-DD" >&2
+        exit 1
+    fi
+done
 
 # Defense in depth: re-validate even though the CGI already checked.
 if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
@@ -28,7 +57,38 @@ if [[ ! -d "$IMAGES_DIR" ]]; then
     exit 1
 fi
 
+# One lock shared with church-calendar's own schedule sweep, so a file move and its
+# schedule entry change together and the calendar never sees one without the other.
+exec 9>>"$IMAGES_DIR/.image-schedule.lock"
+flock -w 10 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+export IMAGE_SCHEDULE_LOCK_HELD=1
+
 TARGET="$IMAGES_DIR/$FILENAME"
+SCHEDULE_FILE="$IMAGES_DIR/image-schedule.json"
+# church-calendar's code folder: client-config "calendar_app_path", else the calendar service's
+# WorkingDirectory, else the parent of the images folder. They differ when images live on a share.
+find_calendar_root() {
+    local images_dir="$1" candidate
+    local cfg="${CLIENT_CONFIG:-/etc/church-monitoring/client-config.json}"
+    for candidate in \
+        "$(jq -r '.calendar_app_path // empty' "$cfg" 2>/dev/null || true)" \
+        "$(systemctl show "${CALENDAR_SERVICE:-church-calendar.service}" -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(dirname "$images_dir")"; do
+        if [[ -n "$candidate" && ( -f "$candidate/image_schedule.py" || -f "$candidate/image_optimizer.py" ) ]]; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    printf '%s' "$(dirname "$images_dir")"
+}
+CALENDAR_ROOT="$(find_calendar_root "$IMAGES_DIR")"
+
+run_optimizer() {
+    if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+        ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py --images-dir "$IMAGES_DIR" ) || echo "Warning: optimizer run failed" >&2
+    fi
+}
+
 TMP_FILE=$(mktemp "${IMAGES_DIR}/.upload-XXXXXX")
 
 if ! base64 -d > "$TMP_FILE" 2>/dev/null; then
@@ -37,12 +97,51 @@ if ! base64 -d > "$TMP_FILE" 2>/dev/null; then
     exit 1
 fi
 
+# Keep whatever this upload replaces so a failed schedule change can put it all back.
+BACKUP_DIR=$(mktemp -d "${IMAGES_DIR}/.upload-backup-XXXXXX")
+trap 'rm -rf "$BACKUP_DIR"' EXIT
+[[ ! -e "$TARGET" ]] || cp -p "$TARGET" "$BACKUP_DIR/image"
+[[ ! -f "$SCHEDULE_FILE" ]] || cp -p "$SCHEDULE_FILE" "$BACKUP_DIR/schedule.json"
+
 mv "$TMP_FILE" "$TARGET"
 chmod 644 "$TARGET"
 
-CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
-if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
-    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+rollback() {
+    if [[ -e "$BACKUP_DIR/image" ]]; then
+        mv -f "$BACKUP_DIR/image" "$TARGET"
+    else
+        rm -f "$TARGET"
+    fi
+    if [[ -f "$BACKUP_DIR/schedule.json" ]]; then
+        cp -p "$BACKUP_DIR/schedule.json" "$IMAGES_DIR/.schedule-restore.tmp"
+        mv -f "$IMAGES_DIR/.schedule-restore.tmp" "$SCHEDULE_FILE"
+    else
+        rm -f "$SCHEDULE_FILE"
+    fi
+}
+
+if [[ -n "$MODE" ]]; then
+    SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
+    if [[ ! -f "$SCHEDULER" ]]; then
+        # Older calendar: the end date in the filename still applies, so keep the image.
+        run_optimizer
+        echo "Wrote $TARGET, but church-calendar has no image_schedule.py; upgrade it to apply the start date" >&2
+        exit 1
+    fi
+    ARGS=(--images-dir "$IMAGES_DIR" set "$FILENAME")
+    if [[ "$MODE" == "persistent" ]]; then
+        ARGS+=(--persistent)
+    else
+        [[ -z "$SHOW_FROM" ]] || ARGS+=(--show-from "$SHOW_FROM")
+        [[ -z "$REMOVE_AFTER" ]] || ARGS+=(--remove-after "$REMOVE_AFTER")
+        [[ "$AUTO_ARCHIVE" -eq 0 ]] || ARGS+=(--auto-archive)
+    fi
+    if ! python3 "$SCHEDULER" "${ARGS[@]}" >/dev/null; then
+        rollback
+        echo "The schedule could not be applied; the upload was rolled back" >&2
+        exit 1
+    fi
 fi
+run_optimizer
 
 echo "Wrote $TARGET"

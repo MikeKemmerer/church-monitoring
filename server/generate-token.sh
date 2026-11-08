@@ -14,8 +14,8 @@ Generates a new single-use enrollment token for client onboarding.
 Options:
     --help    Show this help message
 
-Each token can only be used once. After a client enrolls with a token,
-the token is automatically deleted.
+Each token can only be used once and expires 24 hours after it is created.
+After a client enrolls with a token, the token is automatically deleted.
 
 Tokens are stored in /etc/church-monitoring/tokens/
 EOF
@@ -34,6 +34,9 @@ if [[ ! -d "$TOKEN_DIR" ]]; then
     exit 1
 fi
 
+# Must match TOKEN_TTL_MINUTES in enroll.cgi.
+find "$TOKEN_DIR" -maxdepth 1 -type f -mmin +1440 -delete
+
 TOKEN=$(head -c 32 /dev/urandom | base64 | tr -cd 'a-zA-Z0-9' | head -c 24)
 touch "$TOKEN_DIR/$TOKEN"
 chmod 600 "$TOKEN_DIR/$TOKEN"
@@ -42,7 +45,7 @@ echo "New enrollment token:"
 echo ""
 echo "  $TOKEN"
 echo ""
-echo "This token is single-use. Give it to the client installer."
+echo "This token is single-use and expires in 24 hours. Give it to the client installer."
 
 # Show current token count
 COUNT=$(find "$TOKEN_DIR" -type f | wc -l)

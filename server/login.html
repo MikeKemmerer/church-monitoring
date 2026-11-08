@@ -21,7 +21,7 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0
 <body>
 
 <div class="login-box">
-    <h1>&#128225; Church Monitoring</h1>
+    <h1><span id="brandIcon">&#128225;</span><span id="brandTitle">Church Monitoring</span></h1>
     <form id="loginForm">
         <label>Username<input type="text" id="username" autocomplete="username" autofocus></label>
         <label>Password<input type="password" id="password" autocomplete="current-password"></label>
@@ -31,6 +31,15 @@ body{font-family:-apple-system,system-ui,sans-serif;background:#1a1a2e;color:#e0
 </div>
 
 <script>
+fetch('/cgi-bin/branding.cgi')
+    .then(function(r) { return r.json(); })
+    .then(function(b) {
+        document.title = b.title + ' \u2014 Login';
+        document.getElementById('brandIcon').textContent = b.icon;
+        document.getElementById('brandTitle').textContent = b.title;
+    })
+    .catch(function() {});
+
 document.getElementById('loginForm').addEventListener('submit', function(e) {
     e.preventDefault();
     var username = document.getElementById('username').value.trim();

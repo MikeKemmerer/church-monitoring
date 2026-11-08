@@ -27,6 +27,7 @@
         "rate": 60
     },
     "calendar_images_path": "/opt/church-calendar/images",
+    "calendar_app_path": "/opt/church-calendar",
     "backup": {
         "dir": "/var/backups/church-monitoring",
         "keep": 5,

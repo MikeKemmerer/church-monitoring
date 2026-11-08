@@ -656,13 +656,13 @@ done
 # Retire the old delete-based helper name (superseded by the archive helper).
 rm -f /usr/local/bin/church-monitoring-delete-calendar-image
 
-# Allow www-data to run the calendar image helpers as the display user
+# Allow www-data to run the calendar image helpers as the calendar's user (the CGIs call them with sudo -u pi)
 cat > /etc/sudoers.d/church-monitoring-calendar-images <<'SUDOEOF'
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-write-calendar-image
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-archive-calendar-image
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-restore-calendar-image
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-store-evergreen-image
-www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-activate-evergreen-image
+www-data ALL=(pi) NOPASSWD: /usr/local/bin/church-monitoring-write-calendar-image
+www-data ALL=(pi) NOPASSWD: /usr/local/bin/church-monitoring-archive-calendar-image
+www-data ALL=(pi) NOPASSWD: /usr/local/bin/church-monitoring-restore-calendar-image
+www-data ALL=(pi) NOPASSWD: /usr/local/bin/church-monitoring-store-evergreen-image
+www-data ALL=(pi) NOPASSWD: /usr/local/bin/church-monitoring-activate-evergreen-image
 SUDOEOF
 chmod 440 /etc/sudoers.d/church-monitoring-calendar-images
 
@@ -748,7 +748,8 @@ if [[ $UPDATE -eq 1 ]]; then
     <Directory ${CGI_DIR}>
         Options +ExecCGI
         AddHandler cgi-script .cgi
-        Require all granted
+        # Only the dashboard's certificate; other CA-signed certs (each host's own) are refused.
+        Require expr "%{SSL_CLIENT_S_DN_CN} == 'church-monitoring-server'"
     </Directory>
 
     ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log
@@ -819,7 +820,8 @@ cat > "$VHOST" <<VHEOF
     <Directory ${CGI_DIR}>
         Options +ExecCGI
         AddHandler cgi-script .cgi
-        Require all granted
+        # Only the dashboard's certificate; other CA-signed certs (each host's own) are refused.
+        Require expr "%{SSL_CLIENT_S_DN_CN} == 'church-monitoring-server'"
     </Directory>
 
     ErrorLog \${APACHE_LOG_DIR}/church-monitoring-error.log

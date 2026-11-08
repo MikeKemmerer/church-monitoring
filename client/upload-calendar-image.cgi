@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # upload-calendar-image.cgi - Uploads a new calendar image.
-# Expects a POST body: {"filename":"YYYY-MM-DD Description.ext","data_base64":"..."}
+# Expects a POST body: {"filename":"YYYY-MM-DD Description.ext","data_base64":"...",
+#   "mode":"persistent|scheduled","show_from":"YYYY-MM-DD","remove_after":"YYYY-MM-DD",
+#   "auto_archive":true}
+# The mode has no default: the operator must choose. Persistent filenames carry a
+# 2099+ date; scheduled ones carry the remove_after date and, if auto_archive, an
+# "[auto-archive]" marker before the extension.
 #
 # The filename must already carry the removal-date prefix (the dashboard
 # prepends the date the operator picked before sending) -- enforced here too,
@@ -50,6 +55,38 @@ if [ "$SAFE_NAME" != "$FILENAME" ]; then
     json_error "invalid filename"
 fi
 
+MODE=$(echo "$BODY" | jq -r '.mode // empty' 2>/dev/null)
+SHOW_FROM=$(echo "$BODY" | jq -r '.show_from // empty' 2>/dev/null)
+REMOVE_AFTER=$(echo "$BODY" | jq -r '.remove_after // empty' 2>/dev/null)
+AUTO_ARCHIVE=$(echo "$BODY" | jq -r 'if .auto_archive == true then "1" else "0" end' 2>/dev/null)
+NAME_DATE="${FILENAME:0:10}"
+
+for DAY in "$SHOW_FROM" "$REMOVE_AFTER"; do
+    if [ -n "$DAY" ] && ! [[ "$DAY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        json_error "dates must be YYYY-MM-DD"
+    fi
+done
+HELPER_ARGS=()
+case "$MODE" in
+    persistent)
+        [ $((10#${NAME_DATE:0:4})) -ge 2099 ] || json_error "a persistent image filename must start with a 2099 date"
+        HELPER_ARGS=(--mode persistent)
+        ;;
+    scheduled)
+        [ -n "$REMOVE_AFTER" ] || json_error "a scheduled image needs an end date"
+        [ "$REMOVE_AFTER" = "$NAME_DATE" ] || json_error "filename date must match the end date"
+        HAS_MARKER=0
+        [[ "$FILENAME" == *" [auto-archive]."* ]] && HAS_MARKER=1
+        [ "$HAS_MARKER" = "$AUTO_ARCHIVE" ] || json_error "auto-archive marker must match the auto-archive choice"
+        HELPER_ARGS=(--mode scheduled --remove-after "$REMOVE_AFTER")
+        [ -z "$SHOW_FROM" ] || HELPER_ARGS+=(--show-from "$SHOW_FROM")
+        [ "$AUTO_ARCHIVE" != "1" ] || HELPER_ARGS+=(--auto-archive)
+        ;;
+    *)
+        json_error "mode must be persistent or scheduled"
+        ;;
+esac
+
 # Rough decoded-size check (base64 inflates ~33%) before we even decode.
 B64_LEN=${#DATA_B64}
 APPROX_BYTES=$(( B64_LEN * 3 / 4 ))
@@ -62,7 +99,7 @@ if [ ! -x "$HELPER" ]; then
     json_error "upload helper not installed"
 fi
 
-RESULT=$(echo "$DATA_B64" | sudo -u pi "$HELPER" "$IMAGES_DIR" "$SAFE_NAME" 2>&1)
+RESULT=$(echo "$DATA_B64" | sudo -u pi "$HELPER" "$IMAGES_DIR" "$SAFE_NAME" "${HELPER_ARGS[@]}" 2>&1)
 RC=$?
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

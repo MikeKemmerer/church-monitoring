@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # church-monitoring-set-calendar-settings — Pushes church-calendar display
-# settings (theme, font, slide speed, margins) to the kiosk browser session.
+# settings (theme, font, slide speed, margins, days shown) to the kiosk browser session.
 #
-# Usage: church-monitoring-set-calendar-settings <theme> <font> <speed> <margins>
+# Usage: church-monitoring-set-calendar-settings <theme> <font> <speed> <margins> [days]
 # Each argument is either an allow-listed value or "-" to leave it unchanged.
+# days is a whole number from 1 to 999; the calendar lowers it to its own maximum.
 set -euo pipefail
 
 KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
@@ -17,6 +18,7 @@ THEME="${1:--}"
 FONT="${2:--}"
 SPEED="${3:--}"
 MARGINS="${4:--}"
+DAYS="${5:--}"
 
 in_list() {
     local needle="$1"
@@ -68,6 +70,14 @@ if [[ "$MARGINS" != "-" ]]; then
         exit 1
     fi
     add_param "margins" "$MARGINS"
+fi
+
+if [[ "$DAYS" != "-" ]]; then
+    if ! [[ "$DAYS" =~ ^[1-9][0-9]{0,2}$ ]]; then
+        echo "Invalid days: $DAYS" >&2
+        exit 1
+    fi
+    add_param "days" "$DAYS"
 fi
 
 if [[ -z "$QS" ]]; then
@@ -126,6 +136,7 @@ build_calendar_url() {
             font) [[ "$FONT" == "-" ]] && updated_params+=("$entry") ;;
             speed) [[ "$SPEED" == "-" ]] && updated_params+=("$entry") ;;
             margins) [[ "$MARGINS" == "-" ]] && updated_params+=("$entry") ;;
+            days) [[ "$DAYS" == "-" ]] && updated_params+=("$entry") ;;
             *) [[ -n "$entry" ]] && updated_params+=("$entry") ;;
         esac
     done
@@ -134,6 +145,7 @@ build_calendar_url() {
     [[ "$FONT" != "-" ]] && updated_params+=("font=$FONT")
     [[ "$SPEED" != "-" ]] && updated_params+=("speed=$SPEED")
     [[ "$MARGINS" != "-" ]] && updated_params+=("margins=$MARGINS")
+    [[ "$DAYS" != "-" ]] && updated_params+=("days=$DAYS")
 
     TARGET_URL="$base"
     if (( ${#updated_params[@]} > 0 )); then

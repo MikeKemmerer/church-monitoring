@@ -16,7 +16,7 @@
 echo "Content-Type: application/json"
 echo ""
 
-CONFIG="/etc/church-monitoring/client-config.json"
+CONFIG="${CLIENT_CONFIG:-/etc/church-monitoring/client-config.json}"
 
 IMAGES_DIR=""
 if [ -f "$CONFIG" ]; then
@@ -29,9 +29,35 @@ if [ ! -d "$IMAGES_DIR" ]; then
     exit 0
 fi
 
-OPTIMIZED_DIR="$IMAGES_DIR/optimized"
-THUMB_DIR="$IMAGES_DIR/thumbnails"
 TODAY=$(date +%Y-%m-%d)
+
+# church-calendar's code folder: config "calendar_app_path", else the calendar service's WorkingDirectory,
+# else the parent of the images folder. They differ when images live on a share.
+find_calendar_root() {
+    local images_dir="$1" candidate
+    for candidate in \
+        "$(jq -r '.calendar_app_path // empty' "$CONFIG" 2>/dev/null || true)" \
+        "$(systemctl show "${CALENDAR_SERVICE:-church-calendar.service}" -p WorkingDirectory --value 2>/dev/null || true)" \
+        "$(dirname "$images_dir")"; do
+        if [ -n "$candidate" ] && [ -f "$candidate/image_schedule.py" ]; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    printf '%s' "$(dirname "$images_dir")"
+}
+
+# church-calendar's image schedule is the source of truth for start/end dates; read-only
+# because this runs as the web user. Older calendars without it fall back to filename dates.
+CALENDAR_ROOT="$(find_calendar_root "$IMAGES_DIR")"
+SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
+# church-calendar keeps previews in its own images/ folder, even when originals live on a share.
+DERIVATIVE_DIRS=("$CALENDAR_ROOT/images/optimized" "$IMAGES_DIR/optimized" "$CALENDAR_ROOT/images/thumbnails" "$IMAGES_DIR/thumbnails")
+SCHEDULE_JSON='{"images":[]}'
+if [ -f "$SCHEDULER" ]; then
+    SCHEDULE_JSON=$(python3 "$SCHEDULER" --images-dir "$IMAGES_DIR" list --read-only 2>/dev/null) || SCHEDULE_JSON='{"images":[]}'
+    echo "$SCHEDULE_JSON" | jq -e '.images | type == "array"' >/dev/null 2>&1 || SCHEDULE_JSON='{"images":[]}'
+fi
 
 # Entries are appended as compact JSON lines to a temp file and combined
 # with `jq -s` at the end, rather than round-tripped through jq --argjson
@@ -42,7 +68,9 @@ TODAY=$(date +%Y-%m-%d)
 # if passed as an argument/--arg.
 ENTRIES_FILE=$(mktemp)
 THUMB_B64_FILE=$(mktemp)
-trap 'rm -f "$ENTRIES_FILE" "$THUMB_B64_FILE"' EXIT
+SCHEDULE_FILE=$(mktemp)
+trap 'rm -f "$ENTRIES_FILE" "$THUMB_B64_FILE" "$SCHEDULE_FILE"' EXIT
+printf '%s' "$SCHEDULE_JSON" > "$SCHEDULE_FILE"
 
 while IFS= read -r f; do
     BASENAME=$(basename "$f")
@@ -58,8 +86,13 @@ while IFS= read -r f; do
     # Prefer the larger 'optimized' WebP (up to 800x600 @ quality 85, already
     # generated for the calendar's own slideshow) over the tiny 50x50 thumbnail
     # so previews in the dashboard aren't blurry.
-    PREVIEW_FILE="$OPTIMIZED_DIR/${BASENAME}.webp"
-    [ -f "$PREVIEW_FILE" ] || PREVIEW_FILE="$THUMB_DIR/${BASENAME}.webp"
+    PREVIEW_FILE=""
+    for dir in "${DERIVATIVE_DIRS[@]}"; do
+        if [ -f "$dir/${BASENAME}.webp" ]; then
+            PREVIEW_FILE="$dir/${BASENAME}.webp"
+            break
+        fi
+    done
 
     HAS_THUMB="false"
     : > "$THUMB_B64_FILE"
@@ -86,5 +119,17 @@ done < <(find "$IMAGES_DIR" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.j
 # --slurpfile reads the NDJSON file directly (no argv/ARG_MAX involved),
 # unlike --argjson which would pass the whole (potentially multi-MB) blob
 # as a single command-line argument.
-jq -n --slurpfile images "$ENTRIES_FILE" \
-    '{images: $images, total: ($images | length), stale: ($images | map(select(.stale == true)) | length)}'
+# The schedule is parsed once and merged by filename (no per-image jq calls). Images with no schedule row
+# (older calendar) keep the filename-derived date and stale flag computed above.
+jq -n --slurpfile images "$ENTRIES_FILE" --slurpfile schedule "$SCHEDULE_FILE" '
+    (($schedule[0].images // []) | map({key: .filename, value: .}) | from_entries) as $rows
+    | ($images | map(
+        . as $img
+        | ($rows[$img.filename]) as $row
+        | if $row == null then
+            $img + {show_from: null, remove_after: $img.event_date, auto_archive: false, state: null}
+          else
+            $img + {event_date: $row.remove_after, show_from: $row.show_from, remove_after: $row.remove_after,
+                    auto_archive: ($row.auto_archive // false), state: $row.state, stale: ($row.state == "expired")}
+          end)) as $merged
+    | {images: $merged, total: ($merged | length), stale: ($merged | map(select(.stale == true)) | length)}'

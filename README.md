@@ -17,8 +17,12 @@ graph LR
 - **Pull model** — the server fetches status from agents on demand
 - **Agents** collect metrics via cron every 5 minutes and cache locally
 - **CEC** (TV power/input) checks are triggered from the dashboard, not polled
-- **Mutual TLS** — both server and agents present certificates signed by the same CA
-- **Token enrollment** — single-use tokens authorize new agents to join
+- **Mutual TLS** — both server and agents present certificates signed by the same CA. The
+  server checks each agent's certificate against its client `name` in `server-config.json`
+  (that name must match the agent's certificate, which enrollment ensures; `host` may be any
+  address or alias), and agents accept only the server's certificate
+  (`CN=church-monitoring-server`)
+- **Token enrollment** — single-use tokens, valid for 24 hours, authorize new agents to join
 
 ## Prerequisites
 
@@ -164,6 +168,34 @@ cannot leave less than 5 minutes remaining, and cannot push the total past
 12 hours. The dashboard action runs `church-monitoring-standby-timer` through
 `standby-timer.cgi` and a sudoers rule limited to `plus`, `minus`, and `reset`.
 
+### Calendar Image Scheduling
+
+Uploading, restoring from the archive, and activating an evergreen image all use
+the same chooser, which has no default: pick **Persistent** (always shown) or
+**Scheduled** (optional start date, required last day shown, optional
+auto-archive). An image is shown through its last day and hidden the next day;
+with auto-archive on, church-calendar moves it to `images/archive/` after that
+day. Restored and activated images always start with the dates chosen in the
+dialog, never their old ones. Tiles show `starts …` / `ends …` / `auto-archive`
+badges, and the expired count in `status.json` comes from the schedule.
+
+The schedule lives in church-calendar (`image_schedule.py`, `images/image-schedule.json`)
+and needs church-calendar v1.1.0-rc.3 or newer; the helpers take a shared lock
+with the calendar so a file move and its schedule entry change together. On an
+older calendar, an upload is still written with its end date in the filename but
+reports that the schedule was not applied, and restore/activate are refused and
+leave the image where it was.
+
+The helpers, the image list and the collector find church-calendar's code through the
+optional `calendar_app_path` setting in `client-config.json`, then the calendar service's
+`WorkingDirectory`, then the parent of `calendar_images_path`. Set `calendar_app_path` only
+when the images folder is on a share away from the calendar's code. Previews for images on a
+share need church-calendar v1.1.0-rc.10 or newer, which keeps them in its own `images/` folder.
+
+`tests/test-image-schedule-helpers.sh`, `tests/test-external-images-folder.sh` (both need a
+church-calendar checkout), `tests/test-upload-cgi-validation.sh` and `tests/test-escape-attr.js`
+cover the helpers, upload validation and the dashboard's escaping of file names.
+
 ### Error Alerts (ntfy)
 
 `collect.sh` (installed as `church-monitoring-collect`, run every 5 minutes
@@ -203,6 +235,24 @@ Two optional, read-only server-side scripts build on the same
 
 Both require `jq`, `curl`, and `ntfy-notify.sh` at `/usr/local/bin/ntfy-notify.sh`.
 
+### Branding and version footer
+
+The dashboard, login and help pages take their name from an optional `branding`
+section in `/etc/church-monitoring/server-config.json` (see
+`server/config.example.json`); every field falls back to a generic default:
+
+| Field | Default | Used for |
+|---|---|---|
+| `title` | `Church Monitoring` | Page titles and the heading |
+| `icon` | `📡` | Text or emoji beside the heading |
+| `organization` | empty | Shown first in the footer |
+
+`branding.cgi` serves these without a login (the login page needs them) and
+returns nothing but display text. The footer also shows the installed server
+release (e.g. `v1.1.0-rc.8`) from `installed-version.json` via `version.cgi`,
+which does require a login. Changes take effect on the next page load, with no
+restart.
+
 ## Management Commands
 
 Run these on the **server**:
@@ -226,9 +276,9 @@ The dashboard has its own login screen with per-account sessions and three roles
 
 | Role | Can do |
 |------|--------|
-| `user` | Read-only: view status, screenshots, backups, calendar images |
+| `user` | Read-only: view status, screenshots, backup status, calendar images |
 | `contributor` | Everything a `user` can, plus actions: reboot, restart services, CEC control, mode-switch, calendar settings, backup creation, calendar image upload/archive/restore |
-| `admin` | Everything a `contributor` can, plus user management: add/remove users, change roles, reset passwords, lock/unlock accounts |
+| `admin` | Everything a `contributor` can, plus user management: add/remove users, change roles, reset passwords, lock/unlock accounts; and downloading backups, which contain every key, the CA key and password hashes |
 
 Any logged-in user can change their own password from the dashboard header
 (requires the current password). Five consecutive failed login attempts locks

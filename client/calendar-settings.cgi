@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # calendar-settings.cgi - Pushes church-calendar display settings (theme,
-# font, slide speed, margins) to the configured kiosk browser session.
-# Accepts any combination of ?theme=&font=&speed=&margins=
+# font, slide speed, margins, days shown) to the configured kiosk browser session.
+# Accepts any combination of ?theme=&font=&speed=&margins=&days=
 # Only meaningful on hosts running videokiosk2.
 
 echo "Content-Type: application/json"
@@ -32,11 +32,13 @@ RAW_THEME=$(get_param "theme")
 RAW_FONT=$(get_param "font")
 RAW_SPEED=$(get_param "speed")
 RAW_MARGINS=$(get_param "margins")
+RAW_DAYS=$(get_param "days")
 
 THEME=$(clean "$RAW_THEME")
 FONT=$(clean "$RAW_FONT")
 SPEED=$(clean "$RAW_SPEED")
 MARGINS=$(clean "$RAW_MARGINS")
+DAYS=$(clean "$RAW_DAYS")
 
 if [ -n "$RAW_THEME" ] && ! in_list "$THEME" "$ALLOWED_THEMES"; then
     echo '{"error":"invalid theme"}'
@@ -54,24 +56,29 @@ if [ -n "$RAW_MARGINS" ] && [ "$MARGINS" != "0" ] && [ "$MARGINS" != "1" ]; then
     echo '{"error":"invalid margins (must be 0 or 1)"}'
     exit 0
 fi
+if [ -n "$RAW_DAYS" ] && ! [[ "$RAW_DAYS" =~ ^[1-9][0-9]{0,2}$ ]]; then
+    echo '{"error":"invalid days (must be a whole number from 1 to 999)"}'
+    exit 0
+fi
 
 [ -z "$THEME" ] && THEME="-"
 [ -z "$FONT" ] && FONT="-"
 [ -z "$SPEED" ] && SPEED="-"
 [ -z "$MARGINS" ] && MARGINS="-"
+[ -z "$DAYS" ] && DAYS="-"
 
-if [ "$THEME" = "-" ] && [ "$FONT" = "-" ] && [ "$SPEED" = "-" ] && [ "$MARGINS" = "-" ]; then
-    echo '{"error":"no settings provided - use theme, font, speed, and/or margins"}'
+if [ "$THEME" = "-" ] && [ "$FONT" = "-" ] && [ "$SPEED" = "-" ] && [ "$MARGINS" = "-" ] && [ "$DAYS" = "-" ]; then
+    echo '{"error":"no settings provided - use theme, font, speed, margins, and/or days"}'
     exit 0
 fi
 
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-OUTPUT=$(sudo /usr/local/bin/church-monitoring-set-calendar-settings "$THEME" "$FONT" "$SPEED" "$MARGINS" 2>&1)
+OUTPUT=$(sudo /usr/local/bin/church-monitoring-set-calendar-settings "$THEME" "$FONT" "$SPEED" "$MARGINS" "$DAYS" 2>&1)
 RC=$?
 
 if [ $RC -eq 0 ]; then
-    echo "{\"result\":\"applied\",\"theme\":\"$THEME\",\"font\":\"$FONT\",\"speed\":\"$SPEED\",\"margins\":\"$MARGINS\",\"timestamp\":\"$TIMESTAMP\"}"
+    echo "{\"result\":\"applied\",\"theme\":\"$THEME\",\"font\":\"$FONT\",\"speed\":\"$SPEED\",\"margins\":\"$MARGINS\",\"days\":\"$DAYS\",\"timestamp\":\"$TIMESTAMP\"}"
 else
     echo "{\"result\":\"failed\",\"error\":$(echo "$OUTPUT" | jq -Rs .),\"timestamp\":\"$TIMESTAMP\"}"
 fi
