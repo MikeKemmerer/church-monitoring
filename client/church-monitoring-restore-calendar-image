@@ -105,7 +105,7 @@ if [[ -n "$MODE" ]]; then
     fi
 fi
 if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
-    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py --images-dir "$IMAGES_DIR" ) || echo "Warning: optimizer run failed" >&2
 fi
 
 echo "Restored $SOURCE -> $TARGET"

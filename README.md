@@ -189,7 +189,8 @@ leave the image where it was.
 The helpers, the image list and the collector find church-calendar's code through the
 optional `calendar_app_path` setting in `client-config.json`, then the calendar service's
 `WorkingDirectory`, then the parent of `calendar_images_path`. Set `calendar_app_path` only
-when the images folder is on a share away from the calendar's code.
+when the images folder is on a share away from the calendar's code. Previews for images on a
+share need church-calendar v1.1.0-rc.10 or newer, which keeps them in its own `images/` folder.
 
 `tests/test-image-schedule-helpers.sh`, `tests/test-external-images-folder.sh` (both need a
 church-calendar checkout), `tests/test-upload-cgi-validation.sh` and `tests/test-escape-attr.js`

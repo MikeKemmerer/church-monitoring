@@ -29,8 +29,6 @@ if [ ! -d "$IMAGES_DIR" ]; then
     exit 0
 fi
 
-OPTIMIZED_DIR="$IMAGES_DIR/optimized"
-THUMB_DIR="$IMAGES_DIR/thumbnails"
 TODAY=$(date +%Y-%m-%d)
 
 # church-calendar's code folder: config "calendar_app_path", else the calendar service's WorkingDirectory,
@@ -51,7 +49,10 @@ find_calendar_root() {
 
 # church-calendar's image schedule is the source of truth for start/end dates; read-only
 # because this runs as the web user. Older calendars without it fall back to filename dates.
-SCHEDULER="$(find_calendar_root "$IMAGES_DIR")/image_schedule.py"
+CALENDAR_ROOT="$(find_calendar_root "$IMAGES_DIR")"
+SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
+# church-calendar keeps previews in its own images/ folder, even when originals live on a share.
+DERIVATIVE_DIRS=("$CALENDAR_ROOT/images/optimized" "$IMAGES_DIR/optimized" "$CALENDAR_ROOT/images/thumbnails" "$IMAGES_DIR/thumbnails")
 SCHEDULE_JSON='{"images":[]}'
 if [ -f "$SCHEDULER" ]; then
     SCHEDULE_JSON=$(python3 "$SCHEDULER" --images-dir "$IMAGES_DIR" list --read-only 2>/dev/null) || SCHEDULE_JSON='{"images":[]}'
@@ -85,8 +86,13 @@ while IFS= read -r f; do
     # Prefer the larger 'optimized' WebP (up to 800x600 @ quality 85, already
     # generated for the calendar's own slideshow) over the tiny 50x50 thumbnail
     # so previews in the dashboard aren't blurry.
-    PREVIEW_FILE="$OPTIMIZED_DIR/${BASENAME}.webp"
-    [ -f "$PREVIEW_FILE" ] || PREVIEW_FILE="$THUMB_DIR/${BASENAME}.webp"
+    PREVIEW_FILE=""
+    for dir in "${DERIVATIVE_DIRS[@]}"; do
+        if [ -f "$dir/${BASENAME}.webp" ]; then
+            PREVIEW_FILE="$dir/${BASENAME}.webp"
+            break
+        fi
+    done
 
     HAS_THUMB="false"
     : > "$THUMB_B64_FILE"

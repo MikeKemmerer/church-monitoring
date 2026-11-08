@@ -56,6 +56,13 @@ if ! openssl req -noout -verify -in "$CSR_PATH" 2>/dev/null; then
     exit 1
 fi
 
+# Clients trust the dashboard by these names, so they are never signed for anyone else.
+SUBJECT=$(openssl req -noout -subject -nameopt RFC2253 -in "$CSR_PATH" 2>/dev/null | sed 's/^subject= *//')
+if grep -qiE '(^|,)CN=church-monitoring-(server|ca)(,|$)' <<<"$SUBJECT"; then
+    echo "Refusing to sign: $SUBJECT is reserved for the monitoring server itself." >&2
+    exit 1
+fi
+
 # Extract CN for filename
 CN=$(openssl req -noout -subject -in "$CSR_PATH" 2>/dev/null | grep -oP 'CN\s*=\s*\K[^/,]+' | tr -cd 'a-zA-Z0-9._-')
 if [[ -z "$CN" ]]; then

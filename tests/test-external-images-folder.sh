@@ -13,6 +13,8 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/opt/church-calendar" "$TMP/srv/posters/images"
 cp "$CALENDAR_SRC/image_schedule.py" "$TMP/opt/church-calendar/"
+printf 'import pathlib, sys\npathlib.Path(__file__).with_name("optimizer-args").write_text(" ".join(sys.argv[1:]))\n' \
+    > "$TMP/opt/church-calendar/image_optimizer.py"
 IMAGES="$TMP/srv/posters/images"
 export CLIENT_CONFIG="$TMP/client-config.json"
 printf '{"calendar_images_path":"%s","calendar_app_path":"%s"}' "$IMAGES" "$TMP/opt/church-calendar" > "$CLIENT_CONFIG"
@@ -27,6 +29,12 @@ list_row() { bash "$CLIENT/list-calendar-images.cgi" | tail -n +3 | jq -c --arg 
 png | "$CLIENT/church-monitoring-write-calendar-image" "$IMAGES" "2099-12-31 Banner.png" --mode persistent >/dev/null
 check "upload applies the schedule through calendar_app_path" persistent \
     "$(python3 "$TMP/opt/church-calendar/image_schedule.py" --images-dir "$IMAGES" --today 2040-01-01 list --read-only | jq -r '.images[0].state')"
+check "upload runs the optimizer for the share" "--images-dir $IMAGES" "$(cat "$TMP/opt/church-calendar/optimizer-args")"
+
+mkdir -p "$TMP/opt/church-calendar/images/optimized"
+printf 'webp' > "$TMP/opt/church-calendar/images/optimized/2099-12-31 Banner.png.webp"
+check "list CGI takes previews from the calendar's own images folder" true \
+    "$(bash "$CLIENT/list-calendar-images.cgi" | tail -n +3 | jq '.images[] | select(.filename == "2099-12-31 Banner.png") | .thumbnail | startswith("data:image/webp;base64,")')"
 
 png | "$CLIENT/church-monitoring-write-calendar-image" "$IMAGES" "2026-12-20 Sale [auto-archive].png" \
     --mode scheduled --remove-after 2026-12-20 --show-from 2026-12-10 --auto-archive >/dev/null
