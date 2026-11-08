@@ -64,6 +64,15 @@ flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exi
 export IMAGE_SCHEDULE_LOCK_HELD=1
 
 TARGET="$IMAGES_DIR/$FILENAME"
+SCHEDULE_FILE="$IMAGES_DIR/image-schedule.json"
+CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+
+run_optimizer() {
+    if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
+        ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
+    fi
+}
+
 TMP_FILE=$(mktemp "${IMAGES_DIR}/.upload-XXXXXX")
 
 if ! base64 -d > "$TMP_FILE" 2>/dev/null; then
@@ -72,13 +81,34 @@ if ! base64 -d > "$TMP_FILE" 2>/dev/null; then
     exit 1
 fi
 
+# Keep whatever this upload replaces so a failed schedule change can put it all back.
+BACKUP_DIR=$(mktemp -d "${IMAGES_DIR}/.upload-backup-XXXXXX")
+trap 'rm -rf "$BACKUP_DIR"' EXIT
+[[ ! -e "$TARGET" ]] || cp -p "$TARGET" "$BACKUP_DIR/image"
+[[ ! -f "$SCHEDULE_FILE" ]] || cp -p "$SCHEDULE_FILE" "$BACKUP_DIR/schedule.json"
+
 mv "$TMP_FILE" "$TARGET"
 chmod 644 "$TARGET"
 
-CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
+rollback() {
+    if [[ -e "$BACKUP_DIR/image" ]]; then
+        mv -f "$BACKUP_DIR/image" "$TARGET"
+    else
+        rm -f "$TARGET"
+    fi
+    if [[ -f "$BACKUP_DIR/schedule.json" ]]; then
+        cp -p "$BACKUP_DIR/schedule.json" "$IMAGES_DIR/.schedule-restore.tmp"
+        mv -f "$IMAGES_DIR/.schedule-restore.tmp" "$SCHEDULE_FILE"
+    else
+        rm -f "$SCHEDULE_FILE"
+    fi
+}
+
 if [[ -n "$MODE" ]]; then
     SCHEDULER="$CALENDAR_ROOT/image_schedule.py"
     if [[ ! -f "$SCHEDULER" ]]; then
+        # Older calendar: the end date in the filename still applies, so keep the image.
+        run_optimizer
         echo "Wrote $TARGET, but church-calendar has no image_schedule.py; upgrade it to apply the start date" >&2
         exit 1
     fi
@@ -90,10 +120,12 @@ if [[ -n "$MODE" ]]; then
         [[ -z "$REMOVE_AFTER" ]] || ARGS+=(--remove-after "$REMOVE_AFTER")
         [[ "$AUTO_ARCHIVE" -eq 0 ]] || ARGS+=(--auto-archive)
     fi
-    python3 "$SCHEDULER" "${ARGS[@]}" >/dev/null || { echo "Wrote $TARGET, but the schedule could not be applied" >&2; exit 1; }
+    if ! python3 "$SCHEDULER" "${ARGS[@]}" >/dev/null; then
+        rollback
+        echo "The schedule could not be applied; the upload was rolled back" >&2
+        exit 1
+    fi
 fi
-if [[ -f "$CALENDAR_ROOT/image_optimizer.py" ]]; then
-    ( cd "$CALENDAR_ROOT" && python3 image_optimizer.py ) || echo "Warning: optimizer run failed" >&2
-fi
+run_optimizer
 
 echo "Wrote $TARGET"

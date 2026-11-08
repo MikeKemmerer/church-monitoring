@@ -45,6 +45,18 @@ if [[ "$(basename "$FILENAME")" != "$FILENAME" ]]; then
     exit 1
 fi
 
+if [[ ! -d "$IMAGES_DIR" ]]; then
+    echo "images_dir does not exist: $IMAGES_DIR" >&2
+    exit 1
+fi
+
+# One lock shared with church-calendar's own schedule sweep, so the move and the
+# schedule entry change together and the calendar never sees one without the other.
+# Taken before the checks below so an upload cannot slip in between check and move.
+exec 9>>"$IMAGES_DIR/.image-schedule.lock"
+flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
+export IMAGE_SCHEDULE_LOCK_HELD=1
+
 EVERGREEN_DIR="$IMAGES_DIR/evergreen"
 SOURCE="$EVERGREEN_DIR/$FILENAME"
 if [[ ! -f "$SOURCE" ]]; then
@@ -58,13 +70,7 @@ if [[ -e "$TARGET" ]]; then
     exit 1
 fi
 
-# One lock shared with church-calendar's own schedule sweep, so the move and the
-# schedule entry change together and the calendar never sees one without the other.
-exec 9>>"$IMAGES_DIR/.image-schedule.lock"
-flock -w 30 9 || { echo "Timed out waiting for the image schedule lock" >&2; exit 1; }
-export IMAGE_SCHEDULE_LOCK_HELD=1
-
-mv "$SOURCE" "$TARGET"
+mv -n "$SOURCE" "$TARGET"
 
 CALENDAR_ROOT="$(dirname "$IMAGES_DIR")"
 if [[ -n "$MODE" ]]; then

@@ -61,6 +61,31 @@ check "evergreen activation uses the chosen dates" active "$(state_of "$FOREVER"
 "${SCHED[@]}" --today 2027-01-02 sweep
 [[ -f "$IMAGES/archive/$FOREVER" && ! -e "$IMAGES/$FOREVER" ]] || check "image auto-archived the day after" archived missing
 
+# A failed schedule change puts back the replaced image and the previous schedule
+WRITE="$CLIENT/church-monitoring-write-calendar-image"
+REPLACE="2026-12-25 Replace.png"
+printf 'old-image' | base64 | "$WRITE" "$IMAGES" "$REPLACE" --mode scheduled --remove-after 2026-12-25 --show-from 2026-12-10 >/dev/null
+schedule_before="$(cat "$IMAGES/image-schedule.json")"
+if printf 'new-image' | base64 | "$WRITE" "$IMAGES" "$REPLACE" --mode scheduled --show-from 2026-12-20 --remove-after 2026-12-15 2>/dev/null; then
+    check "upload with an invalid schedule fails" failed succeeded
+fi
+check "failed upload keeps the previous image" old-image "$(cat "$IMAGES/$REPLACE")"
+check "failed upload keeps the previous schedule" "$schedule_before" "$(cat "$IMAGES/image-schedule.json")"
+FRESH="2026-12-26 Fresh.png"
+if printf 'x' | base64 | "$WRITE" "$IMAGES" "$FRESH" --mode scheduled --show-from 2026-12-20 --remove-after 2026-12-15 2>/dev/null; then
+    check "fresh upload with an invalid schedule fails" failed succeeded
+fi
+[[ ! -e "$IMAGES/$FRESH" ]] || check "failed fresh upload leaves nothing behind" none present
+check "no backup folders left behind" 0 "$(find "$IMAGES" -maxdepth 1 -name '.upload-backup-*' | wc -l)"
+
+# Restore never overwrites a file that appeared in the meantime
+: > "$IMAGES/archive/Dup.png"
+: > "$IMAGES/Dup.png"
+if "$CLIENT/church-monitoring-restore-calendar-image" "$IMAGES" "Dup.png" --mode persistent 2>/dev/null; then
+    check "restore refuses to overwrite" refused overwrote
+fi
+[[ -f "$IMAGES/archive/Dup.png" ]] || check "archived copy kept after a refused restore" kept lost
+
 mkdir -p "$IMAGES/evergreen"
 : > "$IMAGES/evergreen/Rollback.png"
 mv "$TMP/cal/image_schedule.py" "$TMP/cal/image_schedule.py.off"
@@ -68,5 +93,14 @@ if "$CLIENT/church-monitoring-activate-evergreen-image" "$IMAGES" "Rollback.png"
     check "activation fails without a schedule module" failed succeeded
 fi
 [[ -f "$IMAGES/evergreen/Rollback.png" && ! -e "$IMAGES/Rollback.png" ]] || check "failed activation rolled back" rolled-back not-rolled-back
+
+# Older calendar (no schedule module): the upload is kept, reported as an error, and derivatives are refreshed
+printf 'import pathlib\npathlib.Path(__file__).with_name("optimizer-ran").write_text("1")\n' > "$TMP/cal/image_optimizer.py"
+OLD="2026-12-27 Old Calendar.png"
+if png | "$WRITE" "$IMAGES" "$OLD" --mode persistent 2>/dev/null; then
+    check "upload on an older calendar reports the missing schedule" failed succeeded
+fi
+[[ -f "$IMAGES/$OLD" ]] || check "older-calendar upload is kept" kept removed
+[[ -f "$TMP/cal/optimizer-ran" ]] || check "optimizer runs on the older-calendar fallback" ran skipped
 
 echo "OK ($PASS checks)"

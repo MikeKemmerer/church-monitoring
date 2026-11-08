@@ -95,8 +95,8 @@ button:disabled{opacity:0.5;cursor:default}
 .sched-dates{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
 .sched-dates label{display:flex;flex-direction:column;gap:2px}
 .sched-dates .sched-check{flex-direction:row;padding-bottom:4px}
-.sched-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000}
-.sched-dialog{background:#16213e;border:1px solid #1a4a7a;border-radius:8px;padding:16px;max-width:420px;width:90%}
+.sched-dialog::backdrop{background:rgba(0,0,0,.6)}
+.sched-dialog{background:#16213e;color:#e8f4fd;border:1px solid #1a4a7a;border-radius:8px;padding:16px;max-width:420px;width:90%}
 .sched-dialog h3{margin:0 0 6px;font-size:14px}
 .sched-file{font-size:11px;color:#a0a0c0;margin-bottom:10px;word-break:break-all}
 .sched-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
@@ -1504,26 +1504,36 @@ function scheduleBadgeHtml(img) {
 
 function openScheduleDialog(title, filename, confirmLabel, onConfirm) {
     closeScheduleDialog();
-    var ov = document.createElement('div');
-    ov.id = 'sched-dialog';
-    ov.className = 'sched-overlay';
-    ov.innerHTML = '<div class="sched-dialog"><h3>' + escapeHtml(title) + '</h3>' +
+    var opener = document.activeElement;
+    var dlg = document.createElement('dialog');
+    dlg.id = 'sched-dialog';
+    dlg.className = 'sched-dialog';
+    dlg.setAttribute('aria-labelledby', 'sched-dialog-title');
+    dlg.innerHTML = '<h3 id="sched-dialog-title">' + escapeHtml(title) + '</h3>' +
         '<div class="sched-file">' + escapeHtml(filename) + '</div>' +
         scheduleFieldsHtml('dlg') +
-        '<div class="sched-actions"><button id="dlg-ok">' + escapeHtml(confirmLabel) + '</button>' +
-        '<button onclick="closeScheduleDialog()">Cancel</button></div></div>';
-    document.body.appendChild(ov);
+        '<div class="sched-actions"><button type="button" id="dlg-ok">' + escapeHtml(confirmLabel) + '</button>' +
+        '<button type="button" id="dlg-cancel">Cancel</button></div>';
+    dlg.addEventListener('close', function() {
+        dlg.remove();
+        if (opener && opener.isConnected && opener.focus) opener.focus();
+    });
+    document.body.appendChild(dlg);
+    document.getElementById('dlg-cancel').onclick = function() { dlg.close(); };
     document.getElementById('dlg-ok').onclick = function() {
         var s = readSchedule('dlg');
         if (!s) return;
-        closeScheduleDialog();
+        dlg.close();
         onConfirm(s);
     };
+    dlg.showModal();
 }
 
 function closeScheduleDialog() {
-    var ov = document.getElementById('sched-dialog');
-    if (ov) ov.remove();
+    var dlg = document.getElementById('sched-dialog');
+    if (!dlg) return;
+    if (dlg.close) dlg.close();
+    dlg.remove();
 }
 
 function viewCalendarImage(host, filename) {
