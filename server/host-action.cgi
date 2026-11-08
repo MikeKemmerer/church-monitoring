@@ -5,9 +5,9 @@
 # Supported actions:
 #   reboot             - reboots the client host
 #   mode-switch&mode=vlc|browser - switches kiosk display mode
-#   calendar-settings&theme=&font=&speed=&margins=  - pushes church-calendar
+#   calendar-settings&theme=&font=&speed=&margins=&days=  - pushes church-calendar
 #     display settings to the browser kiosk session (any combination of the
-#     four params; switches the kiosk into browser mode)
+#     five params; switches the kiosk into browser mode)
 #   browser-scale&scale=1|1.25|1.5|1.75|2|2.5|3|4  - configures Falkon UI scaling
 #   display-control&state=on|off  - applies the client's configured display strategy
 #   standby-timer&delta=plus|minus|reset  - adjusts the kiosk standby countdown by 30 minutes
@@ -133,11 +133,13 @@ case "$ACTION" in
         RAW_FONT=$(parse_qs "font")
         RAW_SPEED=$(parse_qs "speed")
         RAW_MARGINS=$(parse_qs "margins")
+        RAW_DAYS=$(parse_qs "days")
 
         THEME=$(clean_val "$RAW_THEME")
         FONT=$(clean_val "$RAW_FONT")
         SPEED=$(clean_val "$RAW_SPEED")
         MARGINS=$(clean_val "$RAW_MARGINS")
+        DAYS=$(clean_val "$RAW_DAYS")
 
         if [ -n "$RAW_THEME" ] && ! in_list "$THEME" "$ALLOWED_THEMES"; then
             echo '{"error":"invalid theme"}'
@@ -155,13 +157,17 @@ case "$ACTION" in
             echo '{"error":"invalid margins (must be 0 or 1)"}'
             exit 0
         fi
-
-        if [ -z "$THEME" ] && [ -z "$FONT" ] && [ -z "$SPEED" ] && [ -z "$MARGINS" ]; then
-            echo '{"error":"no settings provided - use theme, font, speed, and/or margins"}'
+        if [ -n "$RAW_DAYS" ] && ! [[ "$RAW_DAYS" =~ ^[1-9][0-9]{0,2}$ ]]; then
+            echo '{"error":"invalid days (must be a whole number from 1 to 999)"}'
             exit 0
         fi
 
-        ENDPOINT="/cgi-bin/calendar-settings.cgi?theme=${THEME}&font=${FONT}&speed=${SPEED}&margins=${MARGINS}"
+        if [ -z "$THEME" ] && [ -z "$FONT" ] && [ -z "$SPEED" ] && [ -z "$MARGINS" ] && [ -z "$DAYS" ]; then
+            echo '{"error":"no settings provided - use theme, font, speed, margins, and/or days"}'
+            exit 0
+        fi
+
+        ENDPOINT="/cgi-bin/calendar-settings.cgi?theme=${THEME}&font=${FONT}&speed=${SPEED}&margins=${MARGINS}&days=${DAYS}"
         ;;
     browser-scale)
         SCALE=$(parse_qs "scale")

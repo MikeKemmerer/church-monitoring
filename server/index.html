@@ -1132,6 +1132,7 @@ function toggleCalendarPanel(host, btn, browserType, currentScale) {
             '<option value="1">Large</option>' +
             '<option value="0">Normal</option>' +
         '</select></label>' +
+        '<label>Days shown<input type="number" id="cal-days-' + safeId + '" min="1" max="999" step="1" placeholder="No change" title="The calendar limits this to its own maximum"></label>' +
         (browserType === 'falkon' ?
             '<label>Scale<select id="browser-scale-' + safeId + '">' +
                 '<option value="1">100%</option>' +
@@ -1157,11 +1158,16 @@ function applyCalendarSettings(host, currentScale) {
     var font = document.getElementById('cal-font-' + safeId).value;
     var speed = document.getElementById('cal-speed-' + safeId).value;
     var margins = document.getElementById('cal-margins-' + safeId).value;
+    var days = document.getElementById('cal-days-' + safeId).value.trim();
     var scaleInput = document.getElementById('browser-scale-' + safeId);
     var scale = scaleInput ? scaleInput.value : '';
     var scaleChanged = scale && scale !== (currentScale || '1');
 
-    if (!theme && !font && !speed && !margins && !scaleChanged) {
+    if (days && !/^[1-9][0-9]{0,2}$/.test(days)) {
+        alert('Days shown must be a whole number from 1 to 999.');
+        return;
+    }
+    if (!theme && !font && !speed && !margins && !days && !scaleChanged) {
         alert('Select at least one setting to change.');
         return;
     }
@@ -1170,6 +1176,7 @@ function applyCalendarSettings(host, currentScale) {
     if (font) params += '&font=' + encodeURIComponent(font);
     if (speed) params += '&speed=' + encodeURIComponent(speed);
     if (margins) params += '&margins=' + encodeURIComponent(margins);
+    if (days) params += '&days=' + encodeURIComponent(days);
 
     var panelId = 'calendar-panel-' + safeId;
     var panel = document.getElementById(panelId);
@@ -1177,7 +1184,7 @@ function applyCalendarSettings(host, currentScale) {
 
     var results = [];
     var request = Promise.resolve();
-    if (theme || font || speed || margins) {
+    if (theme || font || speed || margins || days) {
         request = request.then(function() {
             return fetchJson('/cgi-bin/host-action.cgi?' + params);
         }).then(function(data) {
