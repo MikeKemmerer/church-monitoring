@@ -57,8 +57,9 @@ if ! openssl req -noout -verify -in "$CSR_PATH" 2>/dev/null; then
 fi
 
 # Clients trust the dashboard by these names, so they are never signed for anyone else.
+# RFC 2253 separates attributes with ',' and, inside a multi-valued RDN, with '+'.
 SUBJECT=$(openssl req -noout -subject -nameopt RFC2253 -in "$CSR_PATH" 2>/dev/null | sed 's/^subject= *//')
-if grep -qiE '(^|,)CN=church-monitoring-(server|ca)(,|$)' <<<"$SUBJECT"; then
+if grep -qiE '(^|[,+])CN=church-monitoring-(server|ca)([,+]|$)' <<<"$SUBJECT"; then
     echo "Refusing to sign: $SUBJECT is reserved for the monitoring server itself." >&2
     exit 1
 fi

@@ -565,7 +565,7 @@ function renderCard(data) {
     html += '<div class="card-body">';
 
     // Screenshot area (above stats, shown when captured)
-    html += '<div class="screenshot-area" id="screen-' + escapeAttr(name) + '"></div>';
+    html += '<div class="screenshot-area" id="screen-' + escapeHtml(name) + '"></div>';
 
     // Stats
     html += '<div class="card-stats">';
@@ -717,7 +717,7 @@ function renderCard(data) {
         var cached = cecCache[name];
         var cecDisplay = cached ? 'display:block' : 'display:none';
         var cecContent = cached ? renderCecResult(cached) : '';
-        html += '<div class="cec-result" id="cec-' + escapeAttr(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
+        html += '<div class="cec-result" id="cec-' + escapeHtml(name) + '" style="' + cecDisplay + '">' + cecContent + '</div>';
     }
 
     // Calendar images management panel (populated on demand)
@@ -737,8 +737,8 @@ function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// For text placed inside an HTML attribute, including a quoted JS string in an inline handler such as
-// onclick="f('...')". Backslashes are escaped first so a trailing one cannot cancel the closing quote.
+// Only for a quoted JS string in an inline handler such as onclick="f('...')"; plain attributes use escapeHtml.
+// Backslashes are escaped first so a trailing one cannot cancel the closing quote.
 function escapeAttr(s) {
     return String(s)
         .replace(/\\/g, '\\\\')
@@ -893,12 +893,12 @@ function fetchDeviceStatus() {
                 if (!/^https?:\/\//i.test(url || '')) url = '';
                 var dotClass = status === 'online' ? 'online' : 'offline';
                 var nameHtml = url ?
-                    '<a class="card-name" href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer">' +
+                    '<a class="card-name" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer">' +
                         escapeHtml(name) + ' <span class="ext-icon">&#8599;</span></a>' :
                     '<span class="card-name">' + escapeHtml(name) + '</span>';
                 html += '<div class="dev-card">' +
                     nameHtml +
-                    '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeAttr(name) + '"></span>' +
+                    '<span><span class="dev-dot ' + dotClass + '" id="dev-dot-' + escapeHtml(name) + '"></span>' +
                     '<button style="margin-left:6px;padding:2px 6px;font-size:11px" onclick="refreshDevice(\'' + escapeAttr(name) + '\')">' +
                     '&#x21bb;</button></span></div>';
             });
@@ -1292,11 +1292,11 @@ function renderImagesPanel(host, data, panel) {
         images.forEach(function(img) {
             html += '<div class="img-tile' + (img.stale ? ' stale' : '') + '">';
             if (safeImageDataUrl(img.thumbnail)) {
-                html += '<img src="' + escapeAttr(img.thumbnail) + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
+                html += '<img src="' + escapeHtml(img.thumbnail) + '" alt="" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">';
             } else {
                 html += '<div class="img-noThumb" onclick="viewCalendarImage(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">&#128444;</div>';
             }
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (img.state) html += scheduleBadgeHtml(img);
             else if (img.stale) html += '<span class="badge badge-warn">stale</span>';
             if (hasRole('contributor')) {
@@ -1359,8 +1359,8 @@ function renderArchivePanel(host, data, panel) {
         images.forEach(function(img) {
             var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&archived=1';
             html += '<div class="img-tile">';
-            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            html += '<img src="' + escapeHtml(imgUrl) + '" alt="" onclick="window.open(\'' + escapeAttr(imgUrl) + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (hasRole('contributor')) {
                 html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="restoreCalendarImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Restore</button></div>';
             }
@@ -1426,8 +1426,8 @@ function renderEvergreenPanel(host, data, panel) {
         images.forEach(function(img) {
             var imgUrl = '/cgi-bin/fetch-calendar-image-file.cgi?host=' + encodeURIComponent(host) + '&filename=' + encodeURIComponent(img.filename) + '&evergreen=1';
             html += '<div class="img-tile">';
-            html += '<img src="' + imgUrl + '" alt="" onclick="window.open(\'' + imgUrl + '\',\'_blank\')">';
-            html += '<div class="img-name" title="' + escapeAttr(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
+            html += '<img src="' + escapeHtml(imgUrl) + '" alt="" onclick="window.open(\'' + escapeAttr(imgUrl) + '\',\'_blank\')">';
+            html += '<div class="img-name" title="' + escapeHtml(img.filename) + '">' + escapeHtml(img.filename) + '</div>';
             if (hasRole('contributor')) {
                 html += '<div><button style="font-size:10px;padding:2px 5px;margin-top:3px" onclick="activateEvergreenImageUI(\'' + escapeAttr(host) + '\',\'' + escapeAttr(img.filename) + '\')">Activate</button></div>';
             }
