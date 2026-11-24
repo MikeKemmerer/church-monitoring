@@ -128,7 +128,8 @@ configure_apparmor_if_requested() {
 
 # ── Install packages ─────────────────────────────────────────────────
 install_packages() {
-    local required=(apache2 openssl jq curl bc scrot)
+    local required=(apache2 openssl jq curl bc scrot python3)
+    [[ $# -eq 0 ]] || required=("$@")
     local missing=()
 
     for pkg in "${required[@]}"; do
@@ -165,7 +166,7 @@ echo "=== Church Monitoring Client Installer ==="
 echo ""
 
 if [[ $UPDATE -eq 1 ]]; then
-    # ── Update mode: skip packages, enrollment, vhost, cron ──────────
+    # ── Update mode: keep enrollment/vhost/cron; ensure the new adapter runtime ──
     if [[ ! -d "$CONF_DIR" ]]; then
         echo "Error: no existing installation found at $CONF_DIR." >&2
         echo "Run a full install first (without --update)." >&2
@@ -173,6 +174,7 @@ if [[ $UPDATE -eq 1 ]]; then
     fi
     echo "Update mode — keeping certificates and enrollment."
     echo ""
+    install_packages python3
 
     BUNDLED_CONFIG="$SCRIPT_DIR/config.json"
     CLIENT_HOSTNAME=$(jq -r '.hostname // empty' "$CONF_DIR/client-config.json" 2>/dev/null)
@@ -605,7 +607,7 @@ cp "$SCRIPT_DIR/church-monitoring-standby-timer" /usr/local/bin/church-monitorin
 sed -i 's/\r$//' /usr/local/bin/church-monitoring-standby-timer
 chmod 755 /usr/local/bin/church-monitoring-standby-timer
 
-echo "www-data ALL=(ALL) NOPASSWD: /usr/local/bin/church-monitoring-standby-timer plus, /usr/local/bin/church-monitoring-standby-timer minus, /usr/local/bin/church-monitoring-standby-timer reset" \
+echo "www-data ALL=(root) NOPASSWD: /usr/local/bin/church-monitoring-standby-timer plus, /usr/local/bin/church-monitoring-standby-timer minus, /usr/local/bin/church-monitoring-standby-timer reset, /usr/local/bin/church-monitoring-standby-timer settings" \
     > /etc/sudoers.d/church-monitoring-standby-timer
 chmod 440 /etc/sudoers.d/church-monitoring-standby-timer
 
@@ -674,6 +676,16 @@ chmod 440 /etc/sudoers.d/church-monitoring-restart
 # Install collect script
 cp "$SCRIPT_DIR/collect.sh" /usr/local/bin/church-monitoring-collect
 chmod 755 /usr/local/bin/church-monitoring-collect
+
+install -o root -g root -m 755 "$SCRIPT_DIR/church-monitoring-streaming" /usr/local/bin/church-monitoring-streaming
+install -o root -g root -m 644 "$SCRIPT_DIR/church-monitoring-streaming.service" /etc/systemd/system/church-monitoring-streaming.service
+install -o root -g root -m 644 "$SCRIPT_DIR/church-monitoring-streaming.timer" /etc/systemd/system/church-monitoring-streaming.timer
+systemctl daemon-reload
+if /usr/local/bin/church-monitoring-streaming enabled --config "$CONF_DIR/client-config.json"; then
+    systemctl enable --now church-monitoring-streaming.timer
+else
+    systemctl disable --now church-monitoring-streaming.timer >/dev/null 2>&1 || true
+fi
 
 # Install the ntfy alert helper collect.sh uses for health-check and error alerts
 cp "$SCRIPT_DIR/ntfy-notify.sh" /usr/local/bin/ntfy-notify.sh

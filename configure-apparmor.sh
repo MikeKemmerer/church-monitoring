@@ -140,6 +140,7 @@ profile /usr/sbin/apache2 flags=(complain) {
   # Client agent CGI requests.
   ^church-monitoring-client flags=($MODE) {
     #include <abstractions/base>
+    capability chown,
     /bin/** rix,
     /usr/bin/** rix,
     /usr/lib/** mr,
@@ -148,6 +149,10 @@ profile /usr/sbin/apache2 flags=(complain) {
     /usr/lib/cgi-bin/church-monitoring-client/ r,
     /usr/lib/cgi-bin/church-monitoring-client/** rix,
     /usr/local/bin/church-monitoring-* rix,
+    /etc/videokiosk2/ r,
+    /etc/videokiosk2/standby-after-minutes rw,
+    /etc/videokiosk2/standby-after-minutes.[0-9]* rw,
+    /run/videokiosk2/standby.lock rk,
     /var/cache/church-monitoring/ r,
     /var/cache/church-monitoring/** rw,
     /tmp/** rw,

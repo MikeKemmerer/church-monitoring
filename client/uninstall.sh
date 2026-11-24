@@ -51,6 +51,12 @@ fi
 
 echo "=== Uninstalling Church Monitoring Client ==="
 
+systemctl disable --now church-monitoring-streaming.timer >/dev/null 2>&1 || true
+systemctl stop church-monitoring-streaming.service >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/church-monitoring-streaming.{service,timer}
+rm -f /usr/local/bin/church-monitoring-streaming
+systemctl daemon-reload
+
 # Remove cron job
 echo "Removing cron job..."
 if crontab -l 2>/dev/null | grep -q "church-monitoring-collect"; then

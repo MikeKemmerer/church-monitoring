@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HELPER="$ROOT/client/church-monitoring-standby-timer"
 CGI="$ROOT/client/standby-timer.cgi"
-TMP=$(mktemp -d)
+TMP="$ROOT/.standby-test.$$"
+mkdir "$TMP"
 trap 'rm -rf "$TMP"' EXIT
 
 pass=0
@@ -17,6 +18,7 @@ check() {
 
 export CHURCH_MONITORING_STANDBY_DIR="$TMP/run"
 export CHURCH_MONITORING_COLLECTOR="$TMP/collector"
+export CHURCH_MONITORING_STANDBY_DEFAULT_FILE="$TMP/default-minutes"
 printf '#!/usr/bin/env bash\ntouch "%s/collected"\n' "$TMP" > "$TMP/collector"
 chmod +x "$TMP/collector"
 mkdir -p "$TMP/run"
@@ -106,6 +108,95 @@ rm -f "$STANDBY_STATE_FILE"
 check "collector missing file is null" test "$(get_standby_timer_info)" = "null"
 echo "not json" > "$STANDBY_STATE_FILE"
 check "collector invalid json is null" test "$(get_standby_timer_info)" = "null"
+
+# Persistent settings are gated by the wrapper's capability, not just an old countdown.
+write_state counting 60 0 3000 1
+check "legacy wrapper cannot save settings" bash -c "! printf '90 0\n' | '$HELPER' settings 2>/dev/null"
+enable_settings() {
+    jq '. + {settings_version:1,default_minutes:60}' "$TMP/run/standby.json" > "$TMP/state.new"
+    mv "$TMP/state.new" "$TMP/run/standby.json"
+    : > "$TMP/run/standby.lock"
+}
+enable_settings
+before=$(cat "$TMP/run/standby.json")
+out=$(printf '90 0\n' | "$HELPER" settings)
+check "save reports future only" test "$(jq -r '.current_applied' <<<"$out")" = false
+check "save persists numeric default" test "$(cat "$CHURCH_MONITORING_STANDBY_DEFAULT_FILE")" = 90
+check "save does not change current state" test "$(cat "$TMP/run/standby.json")" = "$before"
+check "save does not change adjustment" test ! -e "$TMP/run/standby-adjust"
+export STANDBY_DEFAULT_FILE="$CHURCH_MONITORING_STANDBY_DEFAULT_FILE"
+check "collector reads saved default before next tick" test "$(jq -r .default_minutes <<<"$(get_standby_timer_info)")" = 90
+for bad in 0 4 721 99999999999999 -1 5.5 05 banana; do
+    check "rejects invalid minutes $bad" bash -c "! printf '%s 0\n' '$bad' | '$HELPER' settings 2>/dev/null"
+done
+out=$(printf '90 1\n' | "$HELPER" settings)
+check "apply reports current applied" test "$(jq -r .current_applied <<<"$out")" = true
+check "apply leaves base unchanged" test "$(state_field base_minutes)" = 60
+check "apply uses adjustment against captured base" test "$(adjust_value)" = 30
+"$HELPER" reset >/dev/null
+check "reset restores current captured base not saved default" test "$(adjust_value)" = 0
+check "reset does not alter future default" test "$(cat "$STANDBY_DEFAULT_FILE")" = 90
+
+write_state counting 60 0 310 1
+enable_settings
+check "too late apply refused" bash -c "! printf '5 1\n' | '$HELPER' settings 2>/dev/null"
+check "too late apply does not persist" test "$(cat "$STANDBY_DEFAULT_FILE")" = 90
+check "too late apply leaves adjustment untouched" test ! -e "$TMP/run/standby-adjust"
+for state in idle fired disabled; do
+    write_state "$state" 60 0 0 1
+    enable_settings
+    check "$state apply refused" bash -c "! printf '100 1\n' | '$HELPER' settings 2>/dev/null"
+    printf '100 0\n' | "$HELPER" settings >/dev/null
+    check "$state can save future default" test "$(cat "$STANDBY_DEFAULT_FILE")" = 100
+done
+write_state counting 60 0 3000 200
+enable_settings
+check "stale apply refused" bash -c "! printf '120 1\n' | '$HELPER' settings 2>/dev/null"
+check "stale apply does not persist" test "$(cat "$STANDBY_DEFAULT_FILE")" = 100
+write_state counting 60 0 3000 1
+enable_settings
+cgi_out=$(PATH="$TMP/bin:$PATH" QUERY_STRING="action=settings&minutes=120&apply=0" bash "$CGI" | tail -n +3)
+check "cgi saves future settings" test "$(jq -r .default_minutes <<<"$cgi_out")" = 120
+for query in 'minutes=0&apply=0' 'minutes=90&apply=2' 'minutes=6.5&apply=0'; do
+    cgi_out=$(QUERY_STRING="action=settings&$query" bash "$CGI" | tail -n +3)
+    check "cgi rejects invalid settings $query" test -n "$(jq -r '.error // empty' <<<"$cgi_out")"
+done
+
+# Exercise the actual proxy with local auth/config/curl stubs.
+cat >"$TMP/auth.sh" <<'EOF'
+require_role() {
+    [[ "$1" == contributor ]] || exit 1
+    if [[ "${TEST_ROLE:-}" != contributor ]]; then
+        echo '{"error":"forbidden"}'
+        exit 0
+    fi
+}
+EOF
+printf '{"clients":[{"name":"kiosk","host":"192.0.2.1","port":8033}]}\n' >"$TMP/config.json"
+sed -e "s|source /usr/local/lib/church-monitoring/auth-lib.sh|source \"$TMP/auth.sh\"|" \
+    -e "s|CONFIG=\"/etc/church-monitoring/server-config.json\"|CONFIG=\"$TMP/config.json\"|" \
+    "$ROOT/server/host-action.cgi" >"$TMP/proxy.cgi"
+cat >"$TMP/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$CHURCH_MONITORING_STANDBY_DIR/proxy-args"
+echo '{"result":"applied","default_minutes":120,"current_applied":false}'
+EOF
+chmod +x "$TMP/bin/curl"
+proxy_out=$(PATH="$TMP/bin:$PATH" TEST_ROLE=contributor QUERY_STRING='host=kiosk&action=standby-timer&delta=settings&minutes=120&apply=0' bash "$TMP/proxy.cgi" | tail -n +3)
+check "proxy contributor can save" test "$(jq -r .result <<<"$proxy_out")" = applied
+check "proxy preserves certificate name connect-to" grep -q 'kiosk:8033:192.0.2.1:8033' "$TMP/run/proxy-args"
+check "proxy forwards validated timeout and apply" grep -q 'https://kiosk:8033/cgi-bin/standby-timer.cgi?action=settings&minutes=120&apply=0' "$TMP/run/proxy-args"
+rm "$TMP/run/proxy-args"
+proxy_out=$(PATH="$TMP/bin:$PATH" TEST_ROLE=contributor QUERY_STRING='host=kiosk&action=standby-timer&delta=settings&minutes=0&apply=0' bash "$TMP/proxy.cgi" | tail -n +3)
+check "proxy rejects zero before contacting client" test -n "$(jq -r '.error // empty' <<<"$proxy_out")"
+check "invalid proxy settings make no request" test ! -e "$TMP/run/proxy-args"
+proxy_out=$(PATH="$TMP/bin:$PATH" TEST_ROLE=user QUERY_STRING='host=kiosk&action=standby-timer&delta=settings&minutes=120&apply=0' bash "$TMP/proxy.cgi")
+check "read-only role denied before proxy headers or request" test "$(jq -r .error <<<"$proxy_out")" = forbidden
+check "read-only role makes no request" test ! -e "$TMP/run/proxy-args"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/collector"
+cgi_out=$(PATH="$TMP/bin:$PATH" QUERY_STRING="action=settings&minutes=150&apply=0" bash "$CGI" | tail -n +3)
+check "collector failure does not misreport a persisted save" test "$(jq -r .result <<<"$cgi_out")" = applied
+check "save persists despite optional collector failure" test "$(cat "$STANDBY_DEFAULT_FILE")" = 150
 
 echo
 echo "$pass passed, $fail failed"

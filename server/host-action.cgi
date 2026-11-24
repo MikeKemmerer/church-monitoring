@@ -11,6 +11,7 @@
 #   browser-scale&scale=1|1.25|1.5|1.75|2|2.5|3|4  - configures Falkon UI scaling
 #   display-control&state=on|off  - applies the client's configured display strategy
 #   standby-timer&delta=plus|minus|reset  - adjusts the kiosk standby countdown by 30 minutes
+#   standby-timer&delta=settings&minutes=5..720&apply=0|1 - saves default; optionally applies total duration
 
 source /usr/local/lib/church-monitoring/auth-lib.sh
 require_role contributor
@@ -195,12 +196,23 @@ case "$ACTION" in
         DELTA=$(parse_qs "delta")
         case "$DELTA" in
             plus|minus|reset) ;;
+            settings)
+                MINUTES=$(parse_qs "minutes")
+                APPLY=$(parse_qs "apply")
+                if [[ ! "$MINUTES" =~ ^[1-9][0-9]{0,2}$ || "$MINUTES" -lt 5 || "$MINUTES" -gt 720 || ! "$APPLY" =~ ^[01]$ ]]; then
+                    echo '{"error":"Timeout must be 5 to 720 whole minutes; apply must be 0 or 1"}'
+                    exit 0
+                fi
+                ;;
             *)
                 echo '{"error":"invalid standby delta"}'
                 exit 0
                 ;;
         esac
         ENDPOINT="/cgi-bin/standby-timer.cgi?action=${DELTA}"
+        if [[ "$DELTA" == settings ]]; then
+            ENDPOINT+="&minutes=${MINUTES}&apply=${APPLY}"
+        fi
         ;;
     *)
         echo '{"error":"unknown action"}'

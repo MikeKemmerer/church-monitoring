@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # church-monitoring-standby-timer - Extends or shortens the kiosk standby countdown.
-# Must run as root. Usage: church-monitoring-standby-timer plus|minus|reset
+# Must run as root. settings reads "MINUTES APPLY(0|1)" from stdin.
 set -euo pipefail
 
 STATE_DIR="${CHURCH_MONITORING_STANDBY_DIR:-/run/videokiosk2}"
@@ -12,17 +12,58 @@ MIN_REMAINING_SECONDS=300
 MAX_TOTAL_MINUTES=720
 STALE_SECONDS=120
 ACTION="${1:-}"
+DEFAULT_FILE="${CHURCH_MONITORING_STANDBY_DEFAULT_FILE:-/etc/videokiosk2/standby-after-minutes}"
 
 die() { echo "$1" >&2; exit 1; }
 
 case "$ACTION" in
-    plus|minus|reset) ;;
-    *) die "Usage: church-monitoring-standby-timer plus|minus|reset" ;;
+    plus|minus|reset|settings) ;;
+    *) die "Usage: church-monitoring-standby-timer plus|minus|reset|settings" ;;
 esac
 
 [[ -r "$STATE_FILE" ]] || die "No standby countdown on this host"
 
+if [[ -r "$STATE_DIR/standby.lock" ]]; then
+    exec 9<"$STATE_DIR/standby.lock"
+    flock -x 9
+fi
 read_field() { jq -r --arg k "$1" '.[$k] // empty' "$STATE_FILE"; }
+
+write_atomic() {
+    local dest="$1" tmp="${1}.$$"
+    (set -o noclobber; cat >"$tmp")
+    if [[ -e "$dest" ]]; then
+        chmod --reference="$dest" "$tmp"
+        chown --reference="$dest" "$tmp"
+    else
+        chmod 644 "$tmp"
+    fi
+    mv -f "$tmp" "$dest"
+}
+
+refresh_status() {
+    if [[ -r "$STATE_DIR/standby.lock" ]]; then flock -u 9; fi
+    if [[ -x "$COLLECTOR" ]]; then
+        # A best-effort refresh must not report an already saved setting as failed.
+        "$COLLECTOR" >/dev/null 2>&1 || true
+    fi
+}
+
+if [[ "$ACTION" == settings ]]; then
+    read -r MINUTES APPLY EXTRA || die "Expected minutes and apply flag"
+    [[ "$MINUTES" =~ ^[1-9][0-9]{0,2}$ && "$MINUTES" -ge 5 && "$MINUTES" -le 720 ]] \
+        || die "Timeout must be a whole number from 5 to 720 minutes"
+    [[ "$APPLY" =~ ^[01]$ && -z "${EXTRA:-}" ]] || die "Apply must be 0 or 1"
+    [[ "$(read_field settings_version)" == 1 && -r "$STATE_DIR/standby.lock" ]] \
+        || die "Update videokiosk2 first: persistent standby settings are unsupported"
+    [[ -d "$(dirname "$DEFAULT_FILE")" ]] || die "Kiosk configuration directory is missing"
+    if [[ "$APPLY" == 0 ]]; then
+        printf '%s\n' "$MINUTES" | write_atomic "$DEFAULT_FILE"
+        refresh_status
+        jq -n --argjson minutes "$MINUTES" '{default_minutes:$minutes, current_applied:false}'
+        exit 0
+    fi
+fi
 
 STATE=$(read_field state)
 [[ "$STATE" == "counting" ]] || die "Standby is not counting down (state: ${STATE:-unknown})"
@@ -33,18 +74,19 @@ DEADLINE=$(read_field deadline)
 UPDATED=$(read_field updated)
 UNIT=$(read_field unit_seconds)
 UNIT="${UNIT:-60}"
-for value in "$BASE" "$DEADLINE" "$UPDATED" "$UNIT"; do
-    [[ "$value" =~ ^[0-9]+$ ]] || die "Standby state file is invalid"
-done
-[[ "$ADJUST" =~ ^-?[0-9]+$ ]] || die "Standby state file is invalid"
+[[ "$BASE" =~ ^[1-9][0-9]{0,2}$ && "$BASE" -le 720 &&
+   "$UNIT" =~ ^[1-9][0-9]?$ && "$UNIT" -le 60 &&
+   "$DEADLINE" =~ ^[1-9][0-9]{0,10}$ && "$UPDATED" =~ ^[1-9][0-9]{0,10}$ &&
+   "$ADJUST" =~ ^-?(0|[1-9][0-9]{0,2})$ ]] || die "Standby state file is invalid"
 
 NOW=$(date +%s)
-(( NOW - UPDATED <= STALE_SECONDS )) || die "Standby countdown is not being updated by the kiosk"
+(( NOW >= UPDATED && NOW - UPDATED <= STALE_SECONDS )) || die "Standby countdown is not being updated by the kiosk"
 
 case "$ACTION" in
     plus) NEW_ADJUST=$((ADJUST + STEP_MINUTES)) ;;
     minus) NEW_ADJUST=$((ADJUST - STEP_MINUTES)) ;;
     reset) NEW_ADJUST=0 ;;
+    settings) NEW_ADJUST=$((MINUTES - BASE)) ;;
 esac
 
 (( BASE + NEW_ADJUST <= MAX_TOTAL_MINUTES )) || die "Standby timeout cannot exceed $((MAX_TOTAL_MINUTES / 60)) hours"
@@ -53,22 +95,16 @@ NEW_DEADLINE=$((DEADLINE + (NEW_ADJUST - ADJUST) * UNIT))
 REMAINING=$((NEW_DEADLINE - NOW))
 (( REMAINING >= MIN_REMAINING_SECONDS )) || die "Standby cannot be shortened to less than $((MIN_REMAINING_SECONDS / 60)) minutes from now"
 
-write_atomic() {
-    local dest="$1" tmp
-    tmp=$(mktemp "$STATE_DIR/.tmp.XXXXXX")
-    cat >"$tmp"
-    chmod 644 "$tmp"
-    mv -f "$tmp" "$dest"
-}
-
+if [[ "$ACTION" == settings ]]; then
+    printf '%s\n' "$MINUTES" | write_atomic "$DEFAULT_FILE"
+fi
 printf '%s\n' "$NEW_ADJUST" | write_atomic "$ADJUST_FILE"
 # Patch the state file now so the dashboard does not wait for the wrapper's next tick.
 jq -c --argjson adj "$NEW_ADJUST" --argjson dl "$NEW_DEADLINE" --argjson now "$NOW" \
     '.adjust_minutes = $adj | .deadline = $dl | .updated = $now' "$STATE_FILE" | write_atomic "$STATE_FILE"
 
-if [[ -x "$COLLECTOR" ]]; then
-    "$COLLECTOR" >/dev/null 2>&1 || echo "Warning: unable to refresh Monitoring status" >&2
-fi
+refresh_status
 
 jq -n --argjson adj "$NEW_ADJUST" --argjson remaining "$REMAINING" \
-    '{adjust_minutes: $adj, remaining_seconds: $remaining}'
+    --argjson minutes "${MINUTES:-null}" --argjson applied "$([[ "$ACTION" == settings ]] && echo true || echo false)" \
+    '{adjust_minutes: $adj, remaining_seconds: $remaining, default_minutes:$minutes, current_applied:$applied}'

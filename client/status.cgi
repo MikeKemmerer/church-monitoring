@@ -20,7 +20,16 @@ if echo "$QUERY_STRING" | grep -q 'refresh=1'; then
 fi
 
 if [ -f "$CACHE" ]; then
-    cat "$CACHE"
+    if [ -x /usr/local/bin/church-monitoring-streaming ]; then
+        # Re-evaluate source timestamps; reading the five-minute host cache is not freshness.
+        /usr/local/bin/church-monitoring-streaming merge < "$CACHE"
+    else
+        cat "$CACHE"
+    fi
 else
-    echo '{"error":"no cached data available","timestamp":null}'
+    if [ -x /usr/local/bin/church-monitoring-streaming ]; then
+        echo '{"error":"no cached data available","timestamp":null}' | /usr/local/bin/church-monitoring-streaming merge
+    else
+        echo '{"error":"no cached data available","timestamp":null}'
+    fi
 fi

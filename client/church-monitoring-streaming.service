@@ -1,0 +1,14 @@
+[Unit]
+Description=Read-only streaming diagnostics snapshot
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+ExecStart=/usr/local/bin/church-monitoring-streaming collect
+TimeoutStartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/cache/church-monitoring
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
