@@ -126,7 +126,7 @@ case "$ACTION" in
             return 1
         }
 
-        ALLOWED_THEMES="classic-gold modern-blue elegant-black liturgical-purple festive-red light"
+        ALLOWED_THEMES="classic-gold modern-blue elegant-black liturgical-purple festive-red light thanksgiving winter"
         ALLOWED_FONTS="cinzel-lora roboto-open-sans playfair-source"
         ALLOWED_SPEEDS="12 18"
 

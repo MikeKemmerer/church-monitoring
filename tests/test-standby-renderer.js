@@ -37,6 +37,15 @@ const menu = context.renderMenu('host', {services:[], display_control:{label:'TV
 assert(menu.includes('TV + HDMI') && menu.includes('standby-settings') && menu.includes('Save default'));
 assert(menu.indexOf('id="sub-display-') < menu.indexOf('class="standby-settings"'));
 assert(menu.includes('class="standby-settings" onclick="event.stopPropagation()"'));
+const timeoutOnlyMenu = context.renderMenu('host', {services:[], standby_timer:counting});
+assert(timeoutOnlyMenu.includes('TV + HDMI') && timeoutOnlyMenu.includes('Save default'));
+assert(!timeoutOnlyMenu.includes('displayControlMenu'));
+assert(!context.renderMenu('host', {services:[], standby_timer:{state:'idle'}}).includes('sub-display-'));
+contributor = false;
+const readOnlyMenu = context.renderMenu('host', {services:[], standby_timer:counting});
+assert(readOnlyMenu.includes('Saved TV-off timeout: 90 min'));
+assert(!readOnlyMenu.includes('Save default') && !readOnlyMenu.includes('<input'));
+contributor = true;
 rendered = context.renderStandbyRow('host', counting);
 assert(rendered.includes('standby-left') && rendered.includes('standby-minus'));
 assert(!rendered.includes('standby-settings') && !rendered.includes('Future countdowns'));

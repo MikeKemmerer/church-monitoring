@@ -624,15 +624,15 @@ function renderMenu(name, data) {
         m += '</div>';
     }
 
-    if (data.display_control) {
-        var displayControlInfo = data.display_control;
-        var displayLabel = displayControlInfo.label || 'Display';
+    if (data.display_control || (data.standby_timer && data.standby_timer.settings_version === 1)) {
+        var displayControlInfo = data.display_control || {};
+        var displayLabel = displayControlInfo.label || (data.display_control ? 'Display' : 'TV + HDMI');
         var displayOnLabel = displayControlInfo.on_label || 'On';
         var displayOffLabel = displayControlInfo.off_label || 'Off';
         m += '<div class="menu-sep"></div>';
         m += '<button class="menu-item" onclick="toggleSub(event,\'display-' + n + '\')">&#128421; ' + escapeHtml(displayLabel) + ' &#9656;</button>';
         m += '<div class="menu-sub" id="sub-display-' + n + '">';
-        if (hasRole('contributor')) {
+        if (data.display_control && hasRole('contributor')) {
             m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'on\')">&#9654; ' + escapeHtml(displayOnLabel) + '</button>';
             m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'off\')">&#9724; ' + escapeHtml(displayOffLabel) + '</button>';
         }
@@ -1269,6 +1269,8 @@ function toggleCalendarPanel(host, btn, browserType, currentScale) {
             '<option value="liturgical-purple">Liturgical Purple</option>' +
             '<option value="festive-red">Festive Red</option>' +
             '<option value="light">Light Mode</option>' +
+            '<option value="thanksgiving">Thanksgiving (artwork)</option>' +
+            '<option value="winter">Winter (falling snow)</option>' +
         '</select></label>' +
         '<label>Font<select id="cal-font-' + safeId + '">' +
             '<option value="">No change</option>' +
