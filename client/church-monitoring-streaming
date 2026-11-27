@@ -1,0 +1,404 @@
+#!/usr/bin/python3
+"""Read-only, bounded loopback diagnostics adapter. No control or notification paths."""
+import argparse
+import datetime as dt
+import fcntl
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import urllib.parse
+
+CONFIG = "/etc/church-monitoring/client-config.json"
+CACHE = "/var/cache/church-monitoring/streaming.json"
+ENDPOINT = "http://127.0.0.1:8080/api/streamer/diagnostics"
+LIMIT = 128 * 1024
+SKEW = 2
+RANK = {"ok": 0, "unknown": 1, "warning": 2, "error": 3}
+ROWS = {"playback": "Playback", "encoder": "Encoder",
+        "storage": "Media storage", "scheduling": "Scheduling"}
+ACTIONS = {
+    "church_pause", "stop_at_deadline", "wait_for_kiosk_failover",
+    "wait_for_safe_broadcast", "wait_for_operator_release",
+    "wait_for_scheduler_observation", "continue_weekly_schedule",
+    "wait_for_weekly_window", "await_studio_confirmation", "scheduled_start",
+    "wait_for_eligible_broadcast",
+}
+FIELDS = {
+    "playback": {"expected": str, "actual": str, "intentional_pause": bool,
+                 "transition_grace": bool, "current_title": str, "outputs": list},
+    "encoder": {"status": str, "speed": (str, int, float),
+                "sample_age_seconds": (int, float), "progress_observed_at": str},
+    "storage": {"mount": dict, "available_count": (int, float),
+                "saved_enabled_count": (int, float), "selection_source": str,
+                "read_bytes": (int, float), "remote_roundtrip_verified": bool,
+                "upcoming_count": (int, float), "explicit_empty": bool},
+    "scheduling": {
+        **{k: str for k in ("source", "provider", "discovery_checked_at",
+                           "discovery_retry_at", "kiosk_failover_at", "kiosk_state",
+                           "handoff_reason", "disconnected_at", "decision",
+                           "decision_observed_at", "weekly_observed_at", "deadline_at")},
+        **{k: bool for k in ("discovery_fresh", "calendar_required", "calendar_ready",
+                            "church_blocked", "handoff_waiting", "studio_confirmed",
+                            "resume_church_live")},
+        **{k: (int, float) for k in ("discovery_age_seconds", "calendar_age_seconds",
+                                    "minimum_disconnect_seconds")},
+    },
+    "services": {},
+    "auth": {"mode": str, "expires_at": str, "days_remaining": (int, float)},
+}
+
+
+def number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def timestamp(value):
+    if not isinstance(value, str) or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|\+00:00)", value):
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def text(value):
+    # Source reasons/titles are safe diagnostic prose, never credential/URL fields.
+    return "".join(c for c in value[:1000] if c >= " " or c == "\n")
+
+
+def safe_url(value):
+    if not isinstance(value, str) or re.search(r'[\s<>"\'\\]', value):
+        return None
+    try:
+        url = urllib.parse.urlsplit(value)
+        if (url.scheme in ("http", "https") and url.hostname and not url.username
+                and not url.password and not url.query and not url.fragment):
+            url.port
+            return value
+    except ValueError:
+        pass
+    return None
+
+
+def severity(value):
+    return "warning" if value == "warn" else value if value in RANK else "unknown"
+
+
+def sanitize(payload):
+    if (not isinstance(payload, dict) or type(payload.get("schema_version")) is not int
+            or payload["schema_version"] != 1 or timestamp(payload.get("generated_at")) is None
+            or not isinstance(payload.get("components"), dict)):
+        raise ValueError("Unsupported or malformed streaming diagnostics")
+    out = {"schema_version": 1, "generated_at": payload["generated_at"], "components": {}}
+    for name, fields in FIELDS.items():
+        src = payload["components"].get(name)
+        if not isinstance(src, dict):
+            continue
+        dest = {}
+        for key, types in {**fields, "severity": str, "reason": str,
+                           "observed_at": str, "age_seconds": (int, float), "stale": bool}.items():
+            value = src.get(key)
+            if not isinstance(value, types) or (isinstance(value, (int, float))
+                                               and not isinstance(value, bool) and not number(value)):
+                continue
+            if isinstance(value, bool) and types != bool:
+                continue
+            if isinstance(value, str):
+                dest[key] = text(value)
+            elif key == "mount":
+                dest[key] = {k: value[k] for k in ("required", "mounted") if type(value.get(k)) is bool}
+            elif key == "outputs":
+                dest[key] = [text(v) for v in value[:8] if isinstance(v, str)]
+            elif key == "remote_roundtrip_verified":
+                dest[key] = False  # A FUSE read is not evidence of an Azure round trip.
+            else:
+                dest[key] = value
+        out["components"][name] = dest
+    action = payload.get("next_action")
+    if isinstance(action, dict):
+        name = action.get("action")
+        at = action.get("at")
+        out["next_action"] = {
+            "action": name if isinstance(name, str) and name in ACTIONS else "unknown",
+            "at": at if timestamp(at) is not None else None,
+        }
+    return out
+
+
+def age(observed, now):
+    value = timestamp(observed)
+    return None if value is None or value > now + SKEW else max(0, now - value)
+
+
+def observation(src, ttl, now, snapshot_age=0):
+    elapsed = age(src.get("observed_at"), now)
+    reported = src.get("age_seconds")
+    if elapsed is not None and number(reported) and reported >= 0:
+        elapsed = max(elapsed, reported + (snapshot_age or 0))
+    valid = (src.get("severity") in ("ok", "warn", "warning", "error", "unknown")
+             and isinstance(src.get("reason"), str) and bool(src["reason"])
+             and type(src.get("stale")) is bool
+             and number(src.get("age_seconds")) and src["age_seconds"] >= 0)
+    stale = (not valid or elapsed is None or elapsed > ttl or src.get("stale") is True
+             or src.get("age_seconds", 0) > ttl)
+    if stale:
+        return "unknown", "Stale or missing observation" + (
+            "; historical: " + src["reason"] if isinstance(src.get("reason"), str) else ""), elapsed
+    return severity(src["severity"]), src["reason"], elapsed
+
+
+def worst(items):
+    return max(items, key=lambda item: RANK[item[0]])
+
+
+def scheduling(src, services, now, snapshot_age):
+    source = src.get("source")
+    checks = [observation(src, 600 if source == "youtube" else 90, now, snapshot_age)[:2],
+              observation(services, 120, now, snapshot_age)[:2]]
+    if source not in ("youtube", "weekly"):
+        checks.append(("unknown", "Missing or unsupported scheduling source"))
+    for field in (("decision_observed_at",) if source == "youtube" else ("weekly_observed_at",)):
+        elapsed = age(src.get(field), now)
+        if elapsed is None or elapsed > 90:
+            checks.append(("unknown", "Missing or stale " + field.replace("_", " ")))
+    if source == "youtube":
+        reported = src.get("discovery_age_seconds")
+        # observed_at describes the discovery cache, checked_at describes an optional scan attempt.
+        if (not number(reported) or reported < 0 or snapshot_age is None
+                or reported + snapshot_age > 600 or src.get("discovery_fresh") is not True):
+            checks.append(("unknown", "Missing or stale discovery observation"))
+    if src.get("calendar_required") is True:
+        reported = src.get("calendar_age_seconds")
+        # The source snapshot's reported calendar age must advance with its own observation.
+        if (not number(reported) or reported < 0 or snapshot_age is None
+                or reported + snapshot_age > 180 or src.get("calendar_ready") is not True):
+            checks.append(("unknown", "Missing or stale calendar observation"))
+    selected = worst(checks)
+    unknown = sum(v == "unknown" for v, _ in checks)
+    return selected[0], selected[1] + (
+        f"; {unknown} uncertain source(s)" if unknown and selected[0] in ("warning", "error") else "")
+
+
+def blob(src, now, snapshot_error=None, snapshot_age=0):
+    mode = src.get("mode")
+    value, reason, elapsed = observation(src, 120, now, snapshot_age)
+    if snapshot_error:
+        value, reason = "unknown", snapshot_error
+    if mode == "not_applicable" and value == "ok":
+        return None
+    days = src.get("days_remaining")
+    expiry = timestamp(src.get("expires_at"))
+    display = "unknown"
+    if value != "unknown":
+        if mode in ("msi", "azcli", "workloadidentity", "key", "accountkey"):
+            display = mode
+        elif mode == "sas" and expiry is not None and number(days):
+            days = min(days, (expiry - now) / 86400)
+            display = f"{math.floor(days)}d"
+            boundary = "error" if days <= 7 else "warning" if days <= 30 else "ok"
+            value = worst([(value, reason), (boundary, reason)])[0]
+        else:
+            value, reason = "unknown", "Missing or malformed Blob authentication observation"
+    return {"id": "blob_access", "label": "Blob access", "value": display,
+            "status": {"warning": "warn", "unknown": "warn"}.get(value, value),
+            "tooltip": reason + (f"\nObserved: {src['observed_at']}" if elapsed is not None else "")}
+
+
+def valid_group(group, monitors):
+    if not isinstance(group, dict):
+        return False
+    names = [m.get("name") for m in monitors if isinstance(m, dict)]
+    names += [c.get("name") for m in monitors if isinstance(m, dict) and isinstance(m.get("children"), list)
+              for c in m["children"] if isinstance(c, dict)]
+    return (group.get("type") == "group" and group.get("provider") == "yt-streamer"
+            and isinstance(group.get("name"), str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", group["name"]) is not None
+            and names.count(group["name"]) == 1
+            and ("label" not in group or isinstance(group["label"], str) and bool(group["label"]))
+            and not set(group) - {"name", "label", "type", "provider", "ui_url"})
+
+
+def project(group, payload, now, enabled=True):
+    error = None
+    snapshot_age = None
+    try:
+        payload = sanitize(payload)
+        snapshot_age = age(payload["generated_at"], now)
+        if snapshot_age is None or snapshot_age > 90:
+            error = "Streaming snapshot stale or timestamp invalid"
+    except (ValueError, TypeError):
+        payload = {"components": {}}
+        error = "Streaming diagnostics unavailable or unsupported"
+    if not enabled:
+        error = "Streaming snapshot collection disabled"
+    components = payload["components"]
+    children = []
+    for name, label in ROWS.items():
+        src = components.get(name, {})
+        ttl = 120 if name == "storage" else 600 if name == "scheduling" and src.get("source") == "youtube" else 90
+        value, reason, elapsed = observation(src, ttl, now, snapshot_age)
+        if name == "scheduling":
+            value, reason = scheduling(src, components.get("services", {}), now, snapshot_age)
+        if error:
+            value, reason = "unknown", error + (
+                "; historical: " + src["reason"] if isinstance(src.get("reason"), str) else "")
+        detail = {k: v for k, v in src.items() if k in FIELDS[name]}
+        for key in ("discovery_age_seconds", "calendar_age_seconds", "sample_age_seconds"):
+            if number(detail.get(key)) and detail[key] >= 0 and snapshot_age is not None:
+                detail[key] += snapshot_age
+        # Progress age describes a stall, not snapshot freshness. Only future/invalid progress is rejected.
+        if name == "encoder" and "progress_observed_at" in detail and age(detail["progress_observed_at"], now) is None:
+            value, reason = "unknown", "Invalid encoder progress timestamp"
+        for key in list(detail):
+            if key.endswith("_at") and (timestamp(detail[key]) is None or (
+                    key in ("progress_observed_at", "decision_observed_at", "weekly_observed_at",
+                            "discovery_checked_at") and age(detail[key], now) is None)):
+                del detail[key]
+        children.append({"name": group["name"] + "-" + name, "label": label,
+                         "type": "info", "severity": value, "status": value, "reason": reason,
+                         "observed_at": src.get("observed_at") if elapsed is not None else None, "age_seconds": elapsed,
+                         "stale": value == "unknown", "details": detail})
+        if name == "scheduling":
+            observations = {}
+            for source_name, source_ttl in (("scheduling", ttl), ("services", 120)):
+                source = components.get(source_name, {})
+                source_value, source_reason, source_age = observation(source, source_ttl, now, snapshot_age)
+                if error:
+                    source_value, source_reason = "unknown", error
+                observations[source_name] = {
+                    "observed_at": source.get("observed_at") if source_age is not None else None,
+                    "age_seconds": source_age, "severity": source_value, "reason": source_reason,
+                    "stale": source_value == "unknown"}
+            children[-1]["source_observations"] = observations
+    value, reason = worst([(c["severity"], c["label"] + ": " + c["reason"]) for c in children])
+    result = {"name": group["name"], "label": group.get("label", "Streaming"),
+              "type": "group", "provider": "yt-streamer", "status": value,
+              "severity": value, "reason": reason, "children": children,
+              "uncertainty_count": sum(c["severity"] == "unknown" for c in children)}
+    if safe_url(group.get("ui_url")):
+        result["ui_url"] = group["ui_url"]
+    if "next_action" in payload and not error:
+        result["next_action"] = payload["next_action"]
+    return result, blob(components.get("auth", {}), now, error, snapshot_age)
+
+
+def load(path):
+    try:
+        with open(path, encoding="utf-8") as stream:
+            value = json.load(stream)
+            return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def opted(config):
+    setting = config.get("streaming_diagnostics")
+    return isinstance(setting, dict) and setting.get("enabled") is True
+
+
+def enabled(config):
+    monitors = config.get("monitors", [])
+    return opted(config) and isinstance(monitors, list) and any(
+        valid_group(group, monitors) for group in monitors if isinstance(group, dict))
+
+
+def merge(host, config, payload, now):
+    monitors = config.get("monitors", [])
+    if not isinstance(monitors, list):
+        return host
+    groups = [g for g in monitors if isinstance(g, dict) and g.get("provider") == "yt-streamer"
+              and g.get("type") == "group"]
+    if not groups:
+        return host
+    services = host.get("services", [])
+    services = services if isinstance(services, list) else []
+    metrics = host.get("slow_metrics", [])
+    metrics = metrics if isinstance(metrics, list) else []
+    metrics = [m for m in metrics if not isinstance(m, dict) or m.get("id") != "blob_access"]
+    for group in groups:
+        if valid_group(group, monitors):
+            item, metric = project(group, payload, now, opted(config))
+            if metric and not any(m.get("id") == "blob_access" for m in metrics if isinstance(m, dict)):
+                metrics.append(metric)
+        else:
+            item = {"name": group.get("name", "invalid-group"), "label": "Streaming",
+                    "type": "group", "provider": "yt-streamer", "severity": "error",
+                    "status": "error", "reason": "Invalid streaming provider configuration", "children": []}
+        services = [s for s in services if not isinstance(s, dict) or s.get("name") != group.get("name")]
+        services.append(item)
+    return {**host, "services": services, "slow_metrics": metrics}
+
+
+def fetch():
+    # Curl supplies separate connect/total deadlines and no proxy/redirect behavior.
+    process = subprocess.Popen([
+        "curl", "--disable", "--silent", "--fail", "--noproxy", "*", "--proto", "=http",
+        "--connect-timeout", "1", "--max-time", "3", "--max-filesize", str(LIMIT),
+        "--write-out", "\n%{http_code}",
+        ENDPOINT], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        response = process.stdout.read(LIMIT + 5)
+        if len(response) > LIMIT + 4:
+            raise ValueError("Streaming response exceeds size limit")
+        if process.wait(timeout=4) != 0:
+            raise ValueError("Streaming diagnostics unavailable")
+        body, separator, code = response.rpartition(b"\n")
+        if not separator or code != b"200" or len(body) > LIMIT:
+            raise ValueError("Streaming diagnostics unavailable")
+        return sanitize(json.loads(body))
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        process.stdout.close()
+
+
+def collect(config, cache):
+    if not enabled(config):
+        return
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    with open(cache + ".lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        try:
+            payload = fetch()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            payload = {}  # Never retain a previously green snapshot after a failed fetch.
+        staging = cache + ".new"
+        with open(staging, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, allow_nan=False)
+        os.chmod(staging, 0o644)
+        os.replace(staging, cache)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("operation", choices=("collect", "merge", "enabled"))
+    parser.add_argument("--config", default=CONFIG)
+    parser.add_argument("--cache", default=CACHE)
+    args = parser.parse_args()
+    config = load(args.config)
+    if args.operation == "enabled":
+        return 0 if enabled(config) else 1
+    if args.operation == "collect":
+        collect(config, args.cache)
+    else:
+        try:
+            host = json.load(sys.stdin)
+        except ValueError:
+            host = {}
+        if not isinstance(host, dict):
+            host = {}
+        json.dump(merge(host, config, load(args.cache), dt.datetime.now(dt.timezone.utc).timestamp()),
+                  sys.stdout, allow_nan=False)
+        print()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

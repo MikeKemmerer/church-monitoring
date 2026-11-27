@@ -41,6 +41,10 @@ run_helper light - - - -
 check "days untouched when '-'" "http://localhost:8000/?speed=12&days=14&theme=light#frag" "$(url)"
 run_helper - - 18 -
 check "four-argument callers still work" "http://localhost:8000/?days=14&theme=light&speed=18#frag" "$(url)"
+for seasonal in thanksgiving winter; do
+    run_helper "$seasonal" - - -
+    check "seasonal theme $seasonal accepted" "http://localhost:8000/?days=14&speed=18&theme=$seasonal#frag" "$(url)"
+done
 
 BEFORE="$(url)"
 for bad in 0 -1 abc 5.5 1000 ""; do

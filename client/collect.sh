@@ -20,6 +20,78 @@ notify() {
 }
 trap 'notify -p high -k "collect-failed:$(hostname)" "collect.sh failed on $(hostname) (line $LINENO)"' ERR
 
+collect_monitor_group() {
+    local group="$1" monitors="$2" child name type status severity children="[]" match count rc invalid=0
+    if ! jq -e --argjson monitors "$monitors" '
+        def named: type == "string" and test("\\A[A-Za-z0-9][A-Za-z0-9._-]*\\z");
+        def labeled: (has("label") | not) or (.label | type == "string" and length > 0);
+        . as $g
+        | ([ $monitors[]? | select(type == "object") | .name,
+              (.children[]? | select(type == "object") | .name) ] | group_by(.) |
+              map(select(length > 1) | .[0])) as $duplicates
+        | .type == "group" and (.name | named) and labeled
+          and ((keys - ["name","label","type","children"]) | length == 0)
+          and (.children | type == "array" and length > 0)
+          and all(.children[];
+              type == "object" and (.name | named) and labeled
+              and (.type == "systemd" or .type == "process")
+              and ((keys - ["name","label","type","match"]) | length == 0)
+              and ((has("match") | not) or
+                   (.type == "process" and (.match | type == "string" and length > 0)))
+              and (.name as $n | $duplicates | index($n) | not))
+          and (.name as $n | $duplicates | index($n) | not)
+    ' <<<"$group" >/dev/null 2>&1; then
+        invalid=1
+    else
+        while IFS= read -r child; do
+            match=$(jq -r '.match // empty' <<<"$child")
+            [[ -n "$match" ]] || continue
+            rc=0
+            grep -E -- "$match" </dev/null >/dev/null 2>&1 || rc=$?
+            [[ "$rc" -ne 2 ]] || invalid=1
+        done < <(jq -c '.children[]' <<<"$group")
+    fi
+    if [[ "$invalid" -eq 1 ]]; then
+        jq -cn --argjson g "$group" '
+            {name:(if ($g.name | type) == "string" then $g.name else "invalid-group" end),
+             label:(if ($g.label | type) == "string" then $g.label else "Invalid group" end),
+             type:"group", status:"error", severity:"error",
+             reason:"Invalid group configuration or unsupported provider", children:[]}'
+        return
+    fi
+    while IFS= read -r child; do
+        name=$(jq -r '.name' <<<"$child")
+        type=$(jq -r '.type' <<<"$child")
+        severity="unknown"
+        if [[ "$type" == "systemd" ]]; then
+            status=$(systemctl is-active "$name" 2>/dev/null) || true
+            case "$status" in
+                active) severity="ok" ;;
+                inactive|failed) severity="error" ;;
+                activating|deactivating|reloading) severity="warning" ;;
+                *) status="unknown" ;;
+            esac
+        else
+            match=$(jq -r '.match // empty' <<<"$child")
+            if [[ -n "$match" ]]; then
+                count=$(ps -ef 2>/dev/null | grep -E -- "$match" | grep -vc grep) || count=0
+            else
+                count=$(pgrep -xc -- "$name" 2>/dev/null) || count=0
+            fi
+            if [[ "$count" -gt 0 ]]; then status="running ($count)"; severity="ok"
+            else status="not running"; severity="error"; fi
+        fi
+        children=$(jq -c --argjson c "$child" --arg s "$status" --arg v "$severity" \
+            '. + [($c | del(.match)) + {status:$s,severity:$v,reason:$s}]' <<<"$children")
+    done < <(jq -c '.children[]' <<<"$group")
+    jq -cn --argjson g "$group" --argjson children "$children" '
+        def rank: {ok:0,unknown:1,warning:2,error:3}[.severity] // 1;
+        ($children | to_entries | sort_by([(.value | rank), (-.key)]) | last.value) as $worst
+        | {name:$g.name,label:($g.label // $g.name),type:"group",
+           status:$worst.severity,severity:$worst.severity,
+           reason:(($worst.label // $worst.name) + ": " + $worst.reason),children:$children}'
+}
+
 get_display_control_info() {
     local strategy
 
@@ -71,20 +143,26 @@ get_bluetooth_hid_info() {
 }
 
 get_standby_timer_info() {
-    local file="${STANDBY_STATE_FILE:-/run/videokiosk2/standby.json}" now
+    local file="${STANDBY_STATE_FILE:-/run/videokiosk2/standby.json}" now saved=null
+    local default_file="${STANDBY_DEFAULT_FILE:-/etc/videokiosk2/standby-after-minutes}" value
     [ -r "$file" ] || { echo "null"; return 0; }
     now=$(date +%s)
+    value=$(cat "$default_file" 2>/dev/null || true)
+    if [[ "$value" =~ ^[1-9][0-9]{0,2}$ && "$value" -ge 5 && "$value" -le 720 ]]; then saved="$value"; fi
     # A counting state that has not been refreshed for 2 minutes means the wrapper stopped.
-    jq -c --argjson now "$now" '
+    jq -c --argjson now "$now" --argjson saved "$saved" '
         . as $s
         | (if $s.state == "counting" and ($now - ($s.updated // 0)) > 120 then "stale" else $s.state end) as $state
         | {state: $state,
+           settings_version: ($s.settings_version // 0),
+           default_minutes: (if $s.settings_version == 1 then ($saved // $s.default_minutes) else null end),
            base_minutes: $s.base_minutes,
            adjust_minutes: ($s.adjust_minutes // 0),
            failover_started: $s.failover_started,
            deadline: (if $state == "counting" then $s.deadline else null end),
            remaining_seconds: (if $state == "counting" and $s.deadline != null then ([$s.deadline - $now, 0] | max) else null end),
            min_remaining_seconds: 300,
+           updated_epoch: $s.updated,
            collected_epoch: $now}' "$file" 2>/dev/null || echo "null"
 }
 
@@ -821,6 +899,16 @@ if [ -f "$CONFIG" ]; then
     while IFS= read -r line; do
         NAME=$(echo "$line" | jq -r '.name')
         TYPE=$(echo "$line" | jq -r '.type')
+        if [ "$TYPE" = "group" ]; then
+            # Provider data is merged separately without collecting or notifying.
+            if [[ "$(jq -r '.provider // empty' <<<"$line")" == "yt-streamer" ]] &&
+               jq -e '(keys - ["name","label","type","provider","ui_url"] | length) == 0' <<<"$line" >/dev/null; then
+                continue
+            fi
+            GROUP=$(collect_monitor_group "$line" "$(jq -c '.monitors' "$CONFIG")")
+            SERVICES=$(jq --argjson group "$GROUP" '. + [$group]' <<<"$SERVICES")
+            continue
+        fi
         STATUS="unknown"
         VERSIONS="[]"
 
@@ -974,6 +1062,14 @@ jq -n \
         display_signal: $display_signal,
         software_versions: $software_versions
     }' > "${CACHE}.tmp"
+
+if [[ -x /usr/local/bin/church-monitoring-streaming ]]; then
+    if /usr/local/bin/church-monitoring-streaming merge < "${CACHE}.tmp" > "${CACHE}.streaming"; then
+        mv "${CACHE}.streaming" "${CACHE}.tmp"
+    else
+        rm -f "${CACHE}.streaming"
+    fi
+fi
 
 mv "${CACHE}.tmp" "$CACHE"
 chgrp www-data "$CACHE" 2>/dev/null || true

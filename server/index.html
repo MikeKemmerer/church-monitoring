@@ -32,6 +32,9 @@ h1 a:hover{text-decoration:underline}
 .svc-list{margin-bottom:8px;font-size:13px}
 .svc-row{display:flex;align-items:center;padding:3px 0;border-bottom:1px solid #0f346040}
 .svc-row:last-child{border-bottom:none}
+.monitor-group>summary{cursor:pointer}
+.monitor-group>summary>.svc-row{display:inline-flex;width:calc(100% - 20px);vertical-align:middle}
+.monitor-group>.svc-row{margin-left:18px}
 .svc-name{flex:1;min-width:0}
 .svc-name-line{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 .svc-type{font-size:10px;color:#7f8c8d;background:#0f3460;border-radius:3px;padding:1px 5px;margin-left:6px;flex-shrink:0}
@@ -68,6 +71,10 @@ button:disabled{opacity:0.5;cursor:default}
 .menu-label{font-size:10px;color:#7f8c8d;text-transform:uppercase;padding:5px 10px 2px;letter-spacing:0.5px}
 .menu-sub{display:none;padding-left:10px;border-left:2px solid #1a4a7a;margin-left:6px}
 .menu-sub.open{display:block}
+.standby-settings{padding:8px 6px;font-size:11px;border-top:1px solid #1a4a7a;max-width:270px}
+.standby-settings label,.standby-settings small{display:block;margin-top:7px}
+.standby-settings button{margin-top:7px}
+.standby-settings small{color:#7f8c8d;white-space:normal}
 .badge{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:3px;font-weight:600;vertical-align:middle}
 .badge-warn{background:#f39c12;color:#000}
 .badge-info{background:#1a4a7a;color:#e8f4fd}
@@ -448,16 +455,109 @@ function statusClass(s) {
     return 's-unknown';
 }
 
+var monitorGroupExpansion = Object.create(null);
+
+function monitorSeverityRank(severity) {
+    if (severity === 'error') return 3;
+    if (severity === 'warning') return 2;
+    return severity === 'ok' ? 0 : 1;
+}
+
+function monitorGroupSummary(group) {
+    var severity = group.severity || 'unknown';
+    var reason = group.reason || '';
+    var worst = null;
+    (group.children || []).forEach(function(child) {
+        if (!worst || monitorSeverityRank(child.severity) > monitorSeverityRank(worst.severity)) worst = child;
+    });
+    if (worst && monitorSeverityRank(worst.severity) >= monitorSeverityRank(severity)) {
+        severity = worst.severity || 'unknown';
+        reason = (worst.label || worst.name) + ': ' + (worst.reason || worst.status || 'unknown');
+    }
+    var uncertainty = (group.children || []).filter(function(child) {
+        return !child.severity || child.severity === 'unknown';
+    }).length;
+    if (uncertainty && (severity === 'warning' || severity === 'error')) {
+        reason += ' (' + uncertainty + ' uncertain row' + (uncertainty === 1 ? '' : 's') + ')';
+    }
+    return {severity:severity, reason:reason, uncertainty_count:uncertainty};
+}
+
+function rememberMonitorGroup(host, name, open) {
+    monitorGroupExpansion[JSON.stringify([host, name])] = open;
+}
+
+function streamingPageUrl(value) {
+    if (typeof value !== 'string' || /[\s<>"'\\]/.test(value)) return null;
+    try {
+        var url = new URL(value);
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.hostname &&
+            !url.username && !url.password && !url.search && !url.hash) return value;
+    } catch (e) {}
+    return null;
+}
+
+function renderMonitorService(svc) {
+    var detailHtml = '';
+    var versionHtml = '';
+    (svc.versions || []).forEach(function(version) {
+        var versionTitle = version.detail || (version.label + ' ' + version.value);
+        versionHtml += '<span class="svc-version" title="' + escapeHtml(versionTitle) + '">' +
+            escapeHtml(version.label + ' ' + version.value) + '</span>';
+    });
+    if (svc.reason || svc.detail) {
+        detailHtml = '<div class="svc-type" style="margin-top:2px;max-width:100%;overflow-wrap:anywhere;">' +
+            escapeHtml(svc.reason || svc.detail) + '</div>';
+    }
+    var statusStyle = svc.severity ? (monitorSeverityRank(svc.severity) >= 2 ? 's-inactive' :
+        (svc.severity === 'ok' ? 's-active' : 's-unknown')) : statusClass(svc.status);
+    return '<div class="svc-row"><span class="svc-name"><span class="svc-name-line">' +
+        escapeHtml(svc.label || svc.name) + versionHtml +
+        (svc.type ? '<span class="svc-type">' + escapeHtml(svc.type) + '</span>' : '') +
+        '</span>' + detailHtml + '</span>' +
+        '<span class="svc-status ' + statusStyle + '">' + escapeHtml(svc.status) + '</span></div>';
+}
+
+function renderMonitorServices(host, services) {
+    var html = '<div class="svc-list">';
+    services.forEach(function(svc) {
+        if (svc.type !== 'group') { html += renderMonitorService(svc); return; }
+        var summary = monitorGroupSummary(svc);
+        if (svc.provider === 'yt-streamer') {
+            html += renderMonitorService({name:svc.name, label:svc.label || 'Streaming',
+                status:summary.severity, severity:summary.severity, reason:summary.reason});
+            var pageUrl = streamingPageUrl(svc.ui_url);
+            if (pageUrl) html += '<div class="svc-type"><a href="' + escapeHtml(pageUrl) +
+                '" target="_blank" rel="noopener noreferrer">Open streaming service</a></div>';
+            return;
+        }
+        var open = monitorGroupExpansion[JSON.stringify([host, svc.name])] === true;
+        html += '<details class="monitor-group"' + (open ? ' open' : '') +
+            ' ontoggle="rememberMonitorGroup(\'' + escapeAttr(host) + '\',\'' +
+            escapeAttr(svc.name) + '\',this.open)"><summary>' +
+            renderMonitorService({name:svc.name, label:svc.label, type:'group',
+                status:summary.severity, severity:summary.severity, reason:summary.reason}) + '</summary>';
+        (svc.children || []).forEach(function(child) { html += renderMonitorService(child); });
+        html += '</details>';
+    });
+    return html + '</div>';
+}
+
 function hostHealth(data) {
     if (data.error) return 'err';
-    if (data.bluetooth_hid && data.bluetooth_hid.status !== 'connected') return 'warn';
     var svcs = data.services || [];
-    var bad = false;
+    var groupRank = 0;
+    svcs.forEach(function(svc) {
+        if (svc.type === 'group') groupRank = Math.max(groupRank, monitorSeverityRank(monitorGroupSummary(svc).severity));
+    });
+    if (groupRank === 3) return 'err';
+    var bad = groupRank > 0 || !!(data.bluetooth_hid && data.bluetooth_hid.status !== 'connected');
 
     // Identify mutual-exclusion pair: vlc and the failover browser.
     // Legacy clients report that browser as "midori".
     var vlcSvc = null, browserSvc = null;
     svcs.forEach(function(svc) {
+        if (svc.type === 'group') return;
         if (svc.name === 'vlc') vlcSvc = svc;
         if (svc.name === 'browser' || svc.name === 'midori') browserSvc = svc;
     });
@@ -467,10 +567,11 @@ function hostHealth(data) {
     var hasPair = vlcSvc && browserSvc;
 
     // Both running = caution
-    if (hasPair && vlcUp && browserUp) return 'warn';
+    if (hasPair && vlcUp && browserUp) bad = true;
 
     // Check all services, but skip the expected-down member of the pair
     svcs.forEach(function(svc) {
+        if (svc.type === 'group') return;
         if (svc.status === 'inactive' || svc.status === 'not running') {
             // If this is the idle member of the VLC/browser pair, it is expected.
             if (hasPair && ((svc === browserSvc && vlcUp) || (svc === vlcSvc && browserUp))) return;
@@ -523,18 +624,19 @@ function renderMenu(name, data) {
         m += '</div>';
     }
 
-    if (data.display_control) {
-        var displayControlInfo = data.display_control;
-        var displayLabel = displayControlInfo.label || 'Display';
+    if (data.display_control || (data.standby_timer && data.standby_timer.settings_version === 1)) {
+        var displayControlInfo = data.display_control || {};
+        var displayLabel = displayControlInfo.label || (data.display_control ? 'Display' : 'TV + HDMI');
         var displayOnLabel = displayControlInfo.on_label || 'On';
         var displayOffLabel = displayControlInfo.off_label || 'Off';
         m += '<div class="menu-sep"></div>';
         m += '<button class="menu-item" onclick="toggleSub(event,\'display-' + n + '\')">&#128421; ' + escapeHtml(displayLabel) + ' &#9656;</button>';
         m += '<div class="menu-sub" id="sub-display-' + n + '">';
-        if (hasRole('contributor')) {
+        if (data.display_control && hasRole('contributor')) {
             m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'on\')">&#9654; ' + escapeHtml(displayOnLabel) + '</button>';
             m += '<button class="menu-item" onclick="displayControlMenu(\'' + n + '\',\'off\')">&#9724; ' + escapeHtml(displayOffLabel) + '</button>';
         }
+        m += renderStandbySettings(name, data.standby_timer);
         m += '</div>';
     }
 
@@ -660,24 +762,7 @@ function renderCard(data) {
 
     // Services list (flex rows instead of table)
     if (data.services && data.services.length) {
-        html += '<div class="svc-list">';
-        data.services.forEach(function(svc) {
-            var detailHtml = '';
-            var versionHtml = '';
-            (svc.versions || []).forEach(function(version) {
-                var versionTitle = version.detail || (version.label + ' ' + version.value);
-                versionHtml += '<span class="svc-version" title="' + escapeHtml(versionTitle) + '">' +
-                    escapeHtml(version.label + ' ' + version.value) + '</span>';
-            });
-            if (svc.detail) {
-                detailHtml = '<div class="svc-type" style="margin-top:2px;max-width:100%;overflow-wrap:anywhere;">' + escapeHtml(svc.detail) + '</div>';
-            }
-            html += '<div class="svc-row"><span class="svc-name"><span class="svc-name-line">' + escapeHtml(svc.name) +
-                versionHtml + '<span class="svc-type">' + svc.type + '</span></span>' + detailHtml + '</span>' +
-                '<span class="svc-status ' + statusClass(svc.status) + '">' + escapeHtml(svc.status) + '</span>';
-            html += '</div>';
-        });
-        html += '</div>';
+        html += renderMonitorServices(name, data.services);
     }
 
     // Actions
@@ -687,6 +772,7 @@ function renderCard(data) {
     // Mode switch (show if kiosk processes are monitored)
     var hasVlc = false, hasBrowser = false, hasMidori = false;
     (data.services || []).forEach(function(svc) {
+        if (svc.type === 'group') return;
         if (svc.name === 'vlc') hasVlc = true;
         if (svc.name === 'browser') hasBrowser = true;
         if (svc.name === 'midori') hasMidori = true;
@@ -808,6 +894,54 @@ function renderStandbyRow(name, st) {
             '</span>';
     }
     return html + '</div>';
+}
+
+function renderStandbySettings(name, st) {
+    if (!st) return '';
+    if (st.settings_version !== 1) {
+        return '<div class="svc-type">Auto TV-off settings require an updated videokiosk2 wrapper.</div>';
+    }
+    var minutes = st.default_minutes;
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 720) return '';
+    var html = '<div class="standby-settings" onclick="event.stopPropagation()"><div class="standby-default">Saved TV-off timeout: ' +
+        (minutes === 0 ? 'disabled in legacy kiosk configuration' : minutes + ' min from failover start') + '</div>';
+    if (hasRole('contributor')) {
+        html += '<label>Future countdowns <input class="standby-minutes" type="number" min="5" max="720" step="1" value="' +
+            (minutes >= 5 ? minutes : 60) + '" style="width:65px" aria-label="Auto TV-off timeout in minutes"> min</label>';
+        if (st.state === 'counting' && st.deadline * 1000 > Date.now() &&
+            st.updated_epoch * 1000 <= Date.now() && Date.now() - st.updated_epoch * 1000 <= 120000) {
+            html += '<label><input class="standby-apply" type="checkbox"> Apply to current countdown</label>';
+        }
+        html += '<button onclick="standbySave(\'' + escapeAttr(name) + '\',this)">Save default</button>' +
+            '<small title="Apply sets total time since failover began, not time remaining; at least 5 minutes must remain.">' +
+            '5–720 min. Future countdowns only unless checked.</small>';
+    }
+    return html + '</div>';
+}
+
+function standbySave(name, btn) {
+    var panel = btn.closest('.standby-settings');
+    var raw = panel.querySelector('.standby-minutes').value;
+    var minutes = Number(raw);
+    if (!/^[1-9][0-9]{0,2}$/.test(raw) || minutes < 5 || minutes > 720) {
+        alert('Enter a whole number from 5 to 720 minutes.');
+        return;
+    }
+    var checkbox = panel.querySelector('.standby-apply');
+    var apply = checkbox && checkbox.checked ? 1 : 0;
+    btn.disabled = true;
+    fetch('/cgi-bin/host-action.cgi?host=' + encodeURIComponent(name) +
+        '&action=standby-timer&delta=settings&minutes=' + encodeURIComponent(raw) + '&apply=' + apply)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.error || data.result !== 'applied') throw new Error(data.error || 'Settings were not saved');
+            panel.querySelector('.standby-default').textContent = 'Saved TV-off timeout: ' + minutes + ' min from failover start';
+            alert(data.current_applied ? 'Saved for future countdowns and applied to the current countdown (total time since failover started).' :
+                'Saved for future countdowns. The current countdown is unchanged.');
+            fetchAll(true);
+        })
+        .catch(function(err) { alert('Auto TV-off settings failed: ' + String(err)); })
+        .finally(function() { btn.disabled = false; });
 }
 
 function formatStandbyLeft(seconds) {
@@ -1135,6 +1269,8 @@ function toggleCalendarPanel(host, btn, browserType, currentScale) {
             '<option value="liturgical-purple">Liturgical Purple</option>' +
             '<option value="festive-red">Festive Red</option>' +
             '<option value="light">Light Mode</option>' +
+            '<option value="thanksgiving">Thanksgiving (artwork)</option>' +
+            '<option value="winter">Winter (falling snow)</option>' +
         '</select></label>' +
         '<label>Font<select id="cal-font-' + safeId + '">' +
             '<option value="">No change</option>' +

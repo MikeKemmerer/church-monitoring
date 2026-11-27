@@ -11,6 +11,23 @@ KEY="/etc/church-monitoring/ssl/server.key"
 CA="/etc/church-monitoring/ca/ca.crt"
 NTFY_BIN="/usr/local/bin/ntfy-notify.sh"
 
+monitor_digest_services() {
+    jq -r '
+        def rank: {ok:0,unknown:1,warning:2,error:3}[.severity // "unknown"] // 1;
+        [.services[]? | select(.provider != "yt-streamer") |
+         if .type == "group" then
+             . as $g | ([{severity:($g.severity // "unknown"),reason:($g.reason // "")}] +
+                [($g.children // [])[] | {severity:(.severity // "unknown"),
+                    reason:((.label // .name) + ": " + (.reason // .status // "unknown"))}])
+             | to_entries | sort_by([(.value | rank),(-.key)]) | last.value
+             | select(.severity != "ok")
+             | "\($g.label // $g.name)=\(.severity) (\(.reason))"
+         else
+             select(.type != "info" and (.status | test("^active$|^running"; "i") | not))
+             | "\(.name)=\(.status)"
+         end] | join(", ")'
+}
+
 [[ -f "$CONFIG" ]] || { echo "missing $CONFIG" >&2; exit 1; }
 
 SUMMARY=""
@@ -39,9 +56,7 @@ while IFS= read -r client; do
     [[ -n "$TEMP" ]] && LINE+=" temp=${TEMP}C"
 
     # Flag any service that is not active/running.
-    BAD_SERVICES=$(echo "$DATA" | jq -r '
-        [.services[]? | select(.type != "info" and (.status | test("^active$|^running"; "i") | not))
-         | "\(.name)=\(.status)"] | join(", ")')
+    BAD_SERVICES=$(monitor_digest_services <<<"$DATA")
     if [[ -n "$BAD_SERVICES" ]]; then
         LINE="⚠️ $NAME: $BAD_SERVICES (hdmi=$HDMI)"
         BAD=1

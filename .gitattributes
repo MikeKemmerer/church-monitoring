@@ -1,2 +1,6 @@
 *.sh text eol=lf
 *.cgi text eol=lf
+client/church-monitoring-standby-timer text eol=lf
+client/church-monitoring-streaming text eol=lf
+*.service text eol=lf
+*.timer text eol=lf

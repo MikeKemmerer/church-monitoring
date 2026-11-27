@@ -163,10 +163,34 @@ When `videokiosk2` shows its failover browser it counts down to `tvStandby.sh`
 The collector reports it as `standby_timer` in `status.json`, and the dashboard
 shows an approximate "Standby in ~N min (about HH:MM)" row on that host's card.
 Contributors can add or remove 30 minutes with the card's buttons, or reset to
-the configured default. The adjustment applies only to the current countdown,
+the base captured when that countdown started. The adjustment applies only to the current countdown,
 cannot leave less than 5 minutes remaining, and cannot push the total past
 12 hours. The dashboard action runs `church-monitoring-standby-timer` through
-`standby-timer.cgi` and a sudoers rule limited to `plus`, `minus`, and `reset`.
+`standby-timer.cgi` and a sudoers rule limited to `plus`, `minus`, `reset`, and
+`settings` (validated minutes and apply flag arrive on stdin; no arbitrary arguments).
+
+With a compatible videokiosk2 wrapper, contributors can save **Auto TV-off**
+under the host's **TV + HDMI** (display) action dropdown as 5–720 whole minutes
+for future countdowns, even while idle or after standby has fired. The main
+card shows only the active countdown and its adjustment buttons. Read-only
+users can see the saved default in the dropdown. There is no disable option.
+**Apply to current countdown** is optional and appears only while counting:
+it sets the **total duration since failover began**, not minutes remaining.
+It requires a fresh countdown with at least five minutes remaining after the
+change; rejected requests do not save a new default. Save alone leaves the
+current base, deadline, and adjustment untouched.
+
+The fixed, root-managed numeric file `/etc/videokiosk2/standby-after-minutes`
+overrides the startup `STANDBY_AFTER_MINUTES` value only for new countdowns.
+The wrapper advertises `settings_version: 1` and `default_minutes` in its
+idle/counting/fired/disabled state; older wrappers explicitly lack this capability.
+Current applications use `standby-adjust` and the shared `standby.lock`, so the
+next wrapper tick preserves them without restarting playback. Legacy
+`STANDBY_AFTER_MINUTES=0` remains disabled unless a positive default is saved.
+Include the numeric override in the kiosk app's backup `config_paths` (as in
+`client/config.example.json`); older manifests need that path added.
+Updating deployed kiosks and Monitoring requires separate deployment approval;
+source changes alone do not activate this feature on existing hosts.
 
 ### Calendar Image Scheduling
 
@@ -195,6 +219,151 @@ share need church-calendar v1.1.0-rc.10 or newer, which keeps them in its own `i
 `tests/test-image-schedule-helpers.sh`, `tests/test-external-images-folder.sh` (both need a
 church-calendar checkout), `tests/test-upload-cgi-validation.sh` and `tests/test-escape-attr.js`
 cover the helpers, upload validation and the dashboard's escaping of file names.
+
+### Opt-in monitor groups
+
+Existing unmarked monitors remain flat, including the legacy VLC/browser
+expected-down behavior. To opt in, add an explicit one-level group to the
+client's `monitors` array (see `client/config.example.json`):
+
+```json
+{"name":"background-workers","label":"Background workers","type":"group",
+ "children":[
+   {"name":"cron","label":"Scheduler","type":"systemd"},
+   {"name":"rsyslogd","label":"Logging process","type":"process"}
+ ]}
+```
+
+Names are stable identifiers, unique across all monitors and children, using
+letters, digits, dot, underscore or dash (starting with a letter or digit).
+Labels are optional nonempty display strings and default to names. Children
+support only `systemd` (name is the unit) and `process` (name is the process,
+or optional `match` is an extended regex against `ps -ef`, as for flat monitors).
+Group keys are `name`, `label`, `type`, `children`; child keys are `name`,
+`label`, `type`, `match`. Empty groups, nesting, duplicate/invalid names,
+unsupported types/providers, invalid process regexes and other keys are
+rejected without running their checks. No arbitrary commands are supported.
+The separately opted-in `yt-streamer` display adapter below is the only supported provider.
+
+The collector emits a `services` entry with `type:"group"`, `name`, `label`,
+`status`, `severity`, `reason`, and `children`. Each child carries its name,
+type, optional label, status, severity and reason; process match expressions
+are not emitted. Severities, worst first, are `error`, `warning`, `unknown`,
+`ok`. Down/failed children are errors; transitional systemd states are
+warnings; unrecognized systemd states are unknown.
+The summary uses the worst child's reason, breaking ties by configuration
+order; invalid groups emit an error and an empty children array.
+
+The dashboard defaults groups to collapsed, remembers expansion per host/name
+across refreshes in the current page, and uses worst health even when collapsed.
+The status digest also reads grouped severities. Groups do not inherit the
+flat VLC/browser expected-down exception, add automatic alerts, or authorize
+child service restarts; restart authorization remains top-level systemd only.
+
+Roll out the server dashboard and digest **first**, then collectors, then opt
+in through client configuration. Older clients remain supported; older servers
+do not understand this grouped contract. Generic groups need no new installed
+files or permissions.
+
+### Optional streaming diagnostics (display only)
+
+The `yt-streamer` adapter implements the yt-azure-streamer v1 diagnostics
+contract, but this implementation does **not** deploy that backend. Update the
+Monitoring **server first**, deploy the backend separately with explicit
+authorization, then update the Monitoring agent and opt in on that host.
+Older/missing backends (including HTTP 404) show four unknown rows, not green.
+The backend source contract and its `tools/test-streamer-state.js` /
+`tools/test-streamer-diagnostics.py` fixtures describe source behavior;
+Monitoring's offline tests do not prove that endpoint is deployed.
+
+Add this entry to the agent's `monitors` array; do not supply `children`:
+
+```json
+{"name":"streaming","label":"Streaming","type":"group","provider":"yt-streamer",
+ "ui_url":"https://streaming.example.org/"}
+```
+
+Set `"streaming_diagnostics":{"enabled":true}` at the configuration's top level.
+The example configuration defaults it to false and does not include a provider
+monitor. The optional `ui_url` is an operator-approved, static authenticated UI
+page, not an API/control URL. Only HTTP(S) links without credentials, query,
+fragment, whitespace or unsafe characters are accepted. Omit it if unavailable.
+No link or action is discovered from backend configuration. The dashboard never
+executes `next_action`; known policy projections are text, unknown enums say
+“See streamer diagnostics”. No new notifications are sent: the provider is
+excluded from the status digest's alert selection.
+
+The client installer (fresh and update paths) installs Python 3, the
+`church-monitoring-streaming` helper and its service/timer. It enables the
+30-second timer only for an explicitly enabled provider; otherwise disables it.
+After a later authorized configuration opt-in, enable
+`church-monitoring-streaming.timer` separately or apply the normal agent update.
+No encoder, scheduler or backend restart is needed by the adapter.
+The unprivileged `www-data` oneshot has its own nonblocking flock and atomically
+replaces a sanitized snapshot. It only performs a GET to the fixed loopback
+`http://127.0.0.1:8080/api/streamer/diagnostics`, with no proxy or redirects,
+1-second connect / 3-second total timeout and 128-KiB response limit. No
+filesystem media probes, full collectors, slow-metric scans or browser fetches
+run at this cadence. CGI uses the existing mTLS transport. Existing client
+AppArmor rules already allow the helper/interpreter and cache/config reads;
+no additional executable paths or privileges are required.
+
+`status.cgi` cheaply merges only configured provider entries and the
+`blob_access` slow metric, leaving host CPU/memory/temperature/root disk,
+other services, fields and maintenance caches unchanged. Disabled collection
+or a missing/invalid snapshot retains Playback, Encoder, Media storage and
+Scheduling as unknown. Source service severity/reason folds into Scheduling;
+unit states/restarts are not reconstructed as health or restart authorizations.
+Scheduling and control-service observations retain separate timestamps and
+advancing ages in the status payload. The dashboard shows only Streaming's
+top-level health/reason and a link to the streaming service, not child rows,
+raw telemetry, or scheduling projections. Detailed diagnostics belong on the
+streaming service itself. `source` selects `weekly` or `youtube`;
+`provider` is YouTube discovery's `api` or `yt-dlp`, not a scheduling mode.
+Weekly mode requires its weekly timestamp, not a YouTube decision. YouTube
+requires its decision and discovery cache freshness, not a weekly timestamp;
+the optional discovery scan checked time is not the cache observation time.
+Top diagnostics severity (which includes resources and auth) is not Streaming
+severity. Storage errors remain errors even during intentional playback pauses.
+Saved enabled count zero is not an empty directory-scan fallback.
+
+Source timestamps are retained and freshness recalculated on each status read;
+fetch time never renews observations. A snapshot older than 90 seconds is
+unknown. Invalid or future observations are rejected, allowing only **2 seconds**
+of explicit clock skew. Storage/services/auth expire after 120 seconds,
+decisions/weekly observations after 90, calendar after 180 and discovery after
+600; equality at the boundary is fresh. Source stale flags are honored.
+Old encoder progress is permitted for a confirmed stall, not mistaken for an
+invalid snapshot timestamp. Stale errors become historical unknown. Display
+priority remains error > warning > unknown > ok, with uncertainty counts when
+a warning/error masks unknown rows.
+
+Expanded rows expose only allowlisted operational fields and ages; no PIDs,
+tokens, credentials, runtime configuration, unknown fields or API links are
+exported. Blob access is separate from Cert: SAS warns at <=30 days and errors
+at <=7 days/expired; managed modes (`msi`, `azcli`, `workloadidentity`) and
+account-key modes (`key`, `accountkey`) do not need SAS expiry.
+Missing/malformed/stale auth is visible unknown; only a current, fresh,
+healthy `not_applicable` observation omits the metric. Invalid/stale/disabled
+snapshots omit next-action projections rather than displaying historical policy
+as current. Reported source ages also advance by snapshot age; an older reported
+age cannot be forgiven by a newer timestamp.
+
+Offline validation (no deployed endpoint or services required):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/test-streaming-adapter.py
+bash tests/test-streaming-adapter.sh
+node tests/test-streaming-renderer.js
+```
+
+Optional actual-builder verification against an authorized read-only source
+checkout (evaluates only the pure diagnostics builder; no backend starts):
+
+```bash
+node tests/streaming-source-fixtures.js /path/to/yt-azure-streamer |
+  PYTHONDONTWRITEBYTECODE=1 python3 tests/test-streaming-adapter.py --source-fixtures
+```
 
 ### Error Alerts (ntfy)
 

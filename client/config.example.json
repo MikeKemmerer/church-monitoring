@@ -1,5 +1,8 @@
 {
     "hostname": "my-server",
+    "streaming_diagnostics": {
+        "enabled": false
+    },
     "cert_path": "/etc/church-monitoring/ssl/agent.crt",
     "slow_metric_ttl_seconds": {
         "cert_expiry": 43200,
@@ -17,7 +20,12 @@
         {"name": "church-calendar", "type": "systemd"},
         {"name": "videokiosk2", "type": "systemd"},
         {"name": "vlc", "type": "process", "match": "vlc -f http://server:8080/stream"},
-        {"name": "browser", "type": "process", "match": "falkon|midori|x-www-browser"}
+        {"name": "browser", "type": "process", "match": "falkon|midori|x-www-browser"},
+        {"name": "background-workers", "label": "Background workers", "type": "group",
+         "children": [
+             {"name": "cron", "label": "Scheduler", "type": "systemd"},
+             {"name": "rsyslogd", "label": "Logging process", "type": "process"}
+         ]}
     ],
     "cec_enabled": false,
     "display_control": {
@@ -40,7 +48,7 @@
             "repo": "https://github.com/MikeKemmerer/church-monitoring.git",
             "branch": "master",
             "installer_cmd": "sudo ./client/install.sh --renew",
-            "apt": ["apache2", "openssl", "jq", "curl", "bc", "scrot"],
+            "apt": ["apache2", "openssl", "jq", "curl", "bc", "scrot", "python3"],
             "pip": [],
             "config_paths": [
                 "/etc/church-monitoring/client-config.json"
@@ -89,7 +97,8 @@
             "apt": ["vlc", "x11-apps", "curl", "python3", "cec-utils"],
             "pip": [],
             "config_paths": [
-                "/etc/videokiosk2/local.conf"
+                "/etc/videokiosk2/local.conf",
+                "/etc/videokiosk2/standby-after-minutes"
             ],
             "service_names": ["videokiosk2.service", "videokiosk2-scheduler.service"],
             "order": 50

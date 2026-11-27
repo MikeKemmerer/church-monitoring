@@ -10,7 +10,7 @@ set -euo pipefail
 KIOSK_SERVICE="${KIOSK_SERVICE:-videokiosk2.service}"
 KIOSK_CONFIG="${VIDEOKIOSK2_CONFIG:-/etc/videokiosk2/local.conf}"
 
-ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light)
+ALLOWED_THEMES=(classic-gold modern-blue elegant-black liturgical-purple festive-red light thanksgiving winter)
 ALLOWED_FONTS=(cinzel-lora roboto-open-sans playfair-source)
 ALLOWED_SPEEDS=(12 18)
 
